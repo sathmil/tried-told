@@ -245,3 +245,28 @@ parallel, keep looking for genuinely permissive sources in the background.
   false-positive mode (`m=1` bit) and confirms the exact registry still
   gives the correct answer — a direct test of the actual reason this design
   has two layers, not just an add-then-check smoke test.
+
+## 10. robots.txt compliance
+
+- First external dependency in the project: `github.com/jimsmart/grobotstxt`,
+  chosen over hand-rolling a parser. Unlike BM25/the inverted index (explicit
+  learning targets), robots.txt parsing is protocol compliance with lots of
+  easy-to-get-wrong edge cases (wildcards, Allow/Disallow precedence) — and
+  getting it subtly wrong means violating a site's actual stated wishes, not
+  just shipping a bug. Verified the license (Apache 2.0) and that it's a
+  faithful port of Google's own reference parser (the same implementation
+  RFC 9309 is based on) directly, rather than assuming — same lesson as the
+  `net/url` mistakes in entry 8.
+- Fetch outcome policy: 200 → real rules apply; 404 → no restrictions,
+  crawl freely; anything else (error, unreachable, bad status) → **fail
+  closed**, not allowed. Fail-closed follows directly from the project's
+  founding principle — "don't assume permission, confirm it" — the exact
+  reasoning already used to refuse scraping ToS-prohibited sites. If
+  robots.txt can't be fetched, there's zero information about what's
+  allowed, so proceeding would mean crawling without confirmed permission.
+- **Failures are deliberately never cached.** Fail-closed doesn't have to
+  mean permanently blackholing a host over one bad request — by only
+  caching successful outcomes, the next `Allowed` call naturally retries the
+  fetch fresh. "Not allowed yet," not "not allowed forever," with no
+  separate TTL logic needed. Tested directly with a mock server that fails
+  once then succeeds.
