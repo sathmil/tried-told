@@ -87,6 +87,21 @@ func (f *Frontier) earliestAllowed(host string) time.Time {
 	return now
 }
 
+// NextReadyAt returns the time at which the frontier will next have a URL
+// ready, and false if the frontier currently has no pending work at all
+// (not even anything in cooldown). A caller that gets ok=false from Next
+// can sleep exactly until this time instead of busy-polling or sleeping an
+// arbitrary fixed interval.
+func (f *Frontier) NextReadyAt() (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.ready) == 0 {
+		return time.Time{}, false
+	}
+	return f.ready[0].nextAllowed, true
+}
+
 // Next returns the next URL to fetch. ok is false if the frontier is empty
 // or every host is still within its politeness cooldown - the caller should
 // wait and retry rather than treating this as "done forever."

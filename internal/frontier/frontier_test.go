@@ -70,6 +70,28 @@ func TestFrontier_EmptyReturnsNotOK(t *testing.T) {
 	}
 }
 
+func TestFrontier_NextReadyAt(t *testing.T) {
+	clock := newFakeClock()
+	f := New(10*time.Second, clock.Now)
+
+	if _, ok := f.NextReadyAt(); ok {
+		t.Fatal("NextReadyAt on empty frontier returned ok=true")
+	}
+
+	f.Add("a.com", "https://a.com/1")
+	f.Add("a.com", "https://a.com/2")
+	f.Next() // takes /1, puts a.com in cooldown until now+10s
+
+	readyAt, ok := f.NextReadyAt()
+	if !ok {
+		t.Fatal("expected a pending ready time")
+	}
+	want := clock.Now().Add(10 * time.Second)
+	if !readyAt.Equal(want) {
+		t.Errorf("NextReadyAt = %v, want %v", readyAt, want)
+	}
+}
+
 func TestFrontier_DrainedHostGettingNewWorkStillRespectsCooldown(t *testing.T) {
 	clock := newFakeClock()
 	f := New(10*time.Second, clock.Now)

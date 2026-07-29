@@ -270,3 +270,33 @@ parallel, keep looking for genuinely permissive sources in the background.
   fetch fresh. "Not allowed yet," not "not allowed forever," with no
   separate TTL logic needed. Tested directly with a mock server that fails
   once then succeeds.
+
+## 11. Fetch loop
+
+- Wired `Frontier` + `robots.Checker` + `normalize` + `dedup.Registry` into
+  an actual `Fetcher.Fetch(url)` plus a `Crawl` worker pool — the first
+  genuinely concurrent code in the project, verified clean under `go test
+  -race`.
+- **Workers sleep exactly until the frontier's next host is ready**
+  (added `Frontier.NextReadyAt`), rather than busy-looping (wastes CPU) or
+  polling on a fixed interval (arbitrary — either wastes time or reacts
+  late). The heap already knows the exact soonest ready time, so there's no
+  reason not to use it directly.
+- **Redirects are intercepted manually**
+  (`CheckRedirect: return http.ErrUseLastResponse`), not auto-followed —
+  a redirect can land on a completely different host with different
+  robots.txt rules, so auto-following would silently skip checking
+  permission on the actual destination. Every hop re-runs the full
+  normalize → dedup → robots.txt → fetch sequence. Proved this matters with
+  a test where the redirect *target* (not the original URL) is the one
+  disallowed by robots.txt, and confirmed it's still caught.
+- Retries only 5xx/429/network failures, never a plain 404 — that's a
+  definitive answer, not a transient one worth retrying.
+- Deliberately did **not** build dynamic frontier growth (link extraction)
+  here — `Crawl` runs against a fixed seed set and stops when the frontier
+  drains. That's the extraction milestone's job, not this one's.
+- `TestCrawl_RespectsPolitenessAcrossConcurrentWorkers` runs 4 real
+  concurrent workers against two real local mock servers and checks actual
+  recorded request timestamps — proving politeness holds under genuine
+  concurrency, not just in the Frontier's own isolated single-threaded
+  tests.
