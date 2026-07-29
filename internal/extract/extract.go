@@ -3,6 +3,11 @@
 // docs/design/12-extraction.md.
 package extract
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+)
+
 // Passage is one extracted, individually-searchable unit - a single review
 // or story, not a whole page. Metadata fields are left empty rather than
 // guessed when a page doesn't explicitly state them - never invent what
@@ -15,6 +20,21 @@ type Passage struct {
 	SkinTone        string
 	Climate         string
 	DurationOfUse   string // explicitly stated in the text, e.g. "3 weeks" - see internal/metadata
+}
+
+// ID deterministically identifies this passage by its content: the same
+// SourceURL + Text always produces the same ID, so re-extracting unchanged
+// content is idempotent, while a genuine text edit produces a different ID
+// entirely - content-based identity was chosen over position-based so an
+// edited review is treated as a new state to re-check, not silently
+// assumed to still be "the same" passage. See
+// docs/design/18-deletion-reindexing.md.
+func (p Passage) ID() string {
+	// "\x00" separates the two fields so concatenation can't collide -
+	// without it, SourceURL="http://a.com/b"+Text="c" and
+	// SourceURL="http://a.com"+Text="/bc" would hash identically.
+	sum := sha256.Sum256([]byte(p.SourceURL + "\x00" + p.Text))
+	return hex.EncodeToString(sum[:])
 }
 
 // Extractor turns one fetched page's HTML into its constituent passages.

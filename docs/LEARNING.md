@@ -538,3 +538,43 @@ collection. Kept as a background item rather than a blocker.
   and confirmed the actual produced passages resolve through their
   `SourceURL` to the correct declared policy — not just that the registry
   behaves correctly in isolation.
+
+## 19. Deletion & re-indexing support (extraction component complete)
+
+- **Content-based passage identity** (`Passage.ID()`, hash of `SourceURL`
+  + `Text`), not position-based — a deletion request is about removing a
+  specific stated experience, not "whatever's in slot 3," and an edited
+  review arguably deserves treatment as a new state to re-check rather
+  than silently being assumed unchanged. Re-extracting identical content
+  is idempotent (same ID every time); a real edit naturally gets a
+  different ID.
+- Caught and tested a real correctness detail before it could bite: joined
+  `SourceURL` and `Text` with a `"\x00"` separator, not plain
+  concatenation — without it, two genuinely different (URL, text) pairs
+  can concatenate to the identical string and collide. Wrote a test with a
+  crafted pair that would specifically expose this if the separator were
+  ever removed.
+- **Deletion is a WAL-backed tombstone log**
+  (`crawlstate.DeletionLog`) — same append-only, single-event-type pattern
+  as the frontier and dedup logs, no "undelete" event by design (matches
+  "avoid unnecessary retention"). Logical delete now, physical removal
+  later whenever an index gets rebuilt — the standard Lucene/LSM-tree
+  pattern, not something invented for this project.
+- Deferred full re-indexing (detecting genuinely changed re-crawled
+  content and triggering reprocessing) — needs a real index-building
+  pipeline consuming actual `Passage`s to hook into, which doesn't exist
+  yet. Half the infrastructure is already there (`ContentHash` on
+  `ContentRecord`); the rest waits for the consuming system to exist
+  first, same reasoning as every other "defer until it's needed"
+  decision this session.
+- Test worth naming: extracted real passages from the real fixture,
+  deleted one by its real computed ID, and confirmed exactly that one —
+  and only that one — was excluded from the real remaining set. The
+  extraction-to-deletion path proven together, not each piece in
+  isolation.
+
+**This closes out the extraction component**: boilerplate removal
+(site-specific extractors), passage segmentation, near-dup detection
+(SimHash), language detection, structured metadata, source attribution,
+and now deletion/re-indexing — all built, tested, and documented across
+entries 12-19.
