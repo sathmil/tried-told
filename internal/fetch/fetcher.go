@@ -6,6 +6,7 @@ package fetch
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +14,22 @@ import (
 	"net/url"
 	"time"
 
-	"triedandtold/internal/dedup"
 	"triedandtold/internal/normalize"
 	"triedandtold/internal/robots"
+	"triedandtold/internal/wal"
 )
+
+// ContentRecord is one archived fetch result. If a Fetcher has a content
+// log configured (WithContentLog), one of these is durably appended for
+// every successful fetch - raw content storage, separate from the
+// frontier/dedup scheduling logs, per docs/design/11-persistent-frontier.md.
+type ContentRecord struct {
+	URL         string    `json:"url"`
+	FetchedAt   time.Time `json:"fetched_at"`
+	StatusCode  int       `json:"status_code"`
+	ContentHash string    `json:"content_hash"` // hex-encoded sha256
+	Body        string    `json:"body"`
+}
 
 // ErrAlreadySeen means this URL (or a redirect target reached while
 // fetching it) was already recorded as seen by the dedup registry.
@@ -24,6 +37,14 @@ var ErrAlreadySeen = errors.New("fetch: url already seen")
 
 // ErrDisallowed means robots.txt forbids fetching this URL.
 var ErrDisallowed = errors.New("fetch: disallowed by robots.txt")
+
+// Deduper is the dedup dependency Fetcher needs. *dedup.Registry satisfies
+// this directly; *crawlstate.PersistentRegistry also satisfies it, so a
+// crash-resumable registry can be substituted in with no other changes to
+// Fetcher - see docs/design/11-persistent-frontier.md.
+type Deduper interface {
+	SeenOrAdd(url string) bool
+}
 
 // Config holds the fetcher's tunable behavior.
 type Config struct {
@@ -45,21 +66,29 @@ type Result struct {
 // across hosts - that's the Frontier's job; Fetcher is what a worker calls
 // once the Frontier has said a URL is ready.
 type Fetcher struct {
-	client *http.Client
-	robots *robots.Checker
-	dedup  *dedup.Registry
-	cfg    Config
+	client     *http.Client
+	robots     *robots.Checker
+	dedup      Deduper
+	cfg        Config
+	contentLog *wal.Log[ContentRecord]
 }
 
 // New creates a Fetcher. The returned HTTP client deliberately does not
 // follow redirects automatically - see docs/design/10-fetch-loop.md for why.
-func New(robots *robots.Checker, dedup *dedup.Registry, cfg Config) *Fetcher {
+func New(robots *robots.Checker, dedup Deduper, cfg Config) *Fetcher {
 	client := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 	return &Fetcher{client: client, robots: robots, dedup: dedup, cfg: cfg}
+}
+
+// WithContentLog configures f to durably archive every successful fetch's
+// body to log. Returns f so it can be chained onto New.
+func (f *Fetcher) WithContentLog(log *wal.Log[ContentRecord]) *Fetcher {
+	f.contentLog = log
+	return f
 }
 
 // Fetch retrieves rawURL. Each hop (the original URL, and any redirect
@@ -111,11 +140,25 @@ func (f *Fetcher) Fetch(rawURL string) (*Result, error) {
 			return nil, fmt.Errorf("fetch: reading body of %q: %w", normalized, err)
 		}
 
+		hash := sha256.Sum256(body)
+
+		if f.contentLog != nil {
+			if err := f.contentLog.Append(ContentRecord{
+				URL:         normalized,
+				FetchedAt:   time.Now(),
+				StatusCode:  resp.StatusCode,
+				ContentHash: hex.EncodeToString(hash[:]),
+				Body:        string(body),
+			}); err != nil {
+				return nil, fmt.Errorf("fetch: archiving content for %q: %w", normalized, err)
+			}
+		}
+
 		return &Result{
 			FinalURL:    normalized,
 			StatusCode:  resp.StatusCode,
 			Body:        body,
-			ContentHash: sha256.Sum256(body),
+			ContentHash: hash,
 		}, nil
 	}
 

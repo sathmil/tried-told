@@ -4,12 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"triedandtold/internal/dedup"
 	"triedandtold/internal/robots"
+	"triedandtold/internal/wal"
 )
 
 func testConfig() Config {
@@ -48,6 +50,48 @@ func TestFetcher_SuccessfulFetch(t *testing.T) {
 	}
 	if result.ContentHash == ([32]byte{}) {
 		t.Error("ContentHash was left as the zero value")
+	}
+}
+
+func TestFetcher_ArchivesContentWhenConfigured(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte("archived body"))
+	}))
+	defer srv.Close()
+
+	logPath := filepath.Join(t.TempDir(), "content.jsonl")
+	contentLog, err := wal.Open[ContentRecord](logPath)
+	if err != nil {
+		t.Fatalf("wal.Open returned error: %v", err)
+	}
+
+	f := newFetcher(srv.Client()).WithContentLog(contentLog)
+	if _, err := f.Fetch(srv.URL + "/page"); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+	if err := contentLog.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	var records []ContentRecord
+	if err := wal.Replay[ContentRecord](logPath, func(r ContentRecord) { records = append(records, r) }); err != nil {
+		t.Fatalf("Replay returned error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("got %d archived records, want 1", len(records))
+	}
+	if records[0].Body != "archived body" {
+		t.Errorf("Body = %q, want %q", records[0].Body, "archived body")
+	}
+	if records[0].URL != srv.URL+"/page" {
+		t.Errorf("URL = %q, want %q", records[0].URL, srv.URL+"/page")
+	}
+	if records[0].ContentHash == "" {
+		t.Error("ContentHash was left empty")
 	}
 }
 

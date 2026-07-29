@@ -300,3 +300,37 @@ parallel, keep looking for genuinely permissive sources in the background.
   recorded request timestamps — proving politeness holds under genuine
   concurrency, not just in the Frontier's own isolated single-threaded
   tests.
+
+## 12. Persistent, resumable frontier + raw content storage
+
+- **Pure write-ahead log**, not snapshots or a snapshot+WAL hybrid —
+  because the project isn't at real crawl volume yet, and the alternatives
+  only solve problems (log growth, recovery time) that bite at a scale not
+  yet reached. Same "design for the next stage, not the one after"
+  reasoning used throughout.
+- Built one generic, reusable primitive (`internal/wal`: `Log[T]`/`Replay[T]`)
+  rather than three bespoke logs — the frontier log, dedup log, and content
+  log all share the exact same durability mechanics (append, fsync, replay,
+  tolerate a torn trailing line from a crash).
+- **The actual insight, not just the mechanism:** the frontier log only
+  ever needs an "enqueue" event, never a "completed" one. On restart, replay
+  re-adds *every* URL ever discovered, including already-fetched ones — but
+  `Fetcher.Fetch`'s first step is the dedup check, so an already-fetched URL
+  (if the dedup log was *also* replayed) gets skipped via `ErrAlreadySeen`
+  automatically. Two simple, single-purpose logs turned out to be simpler
+  than one unified log with completion-tracking and replay-ordering logic.
+  Proved this end-to-end (not just per-component) with a test that fetches
+  one of two URLs, "crashes," reopens both logs fresh, and confirms the
+  fetched one is skipped while the new one still goes through — checked
+  against actual mock-server request counts.
+- Real integration wrinkle: `Fetcher` depended on the concrete
+  `*dedup.Registry` type, so the persistent wrapper couldn't substitute in.
+  Fixed by depending on a minimal interface instead — existing tests kept
+  passing unmodified, since `*dedup.Registry` already satisfied it.
+- Content storage: plain JSONL, not WARC — nothing here interoperates with
+  external archive tooling yet, and everything else already uses JSONL.
+  Explicitly revisit only if real WARC interop becomes a requirement.
+- Deliberately left out: per-host cooldown timing doesn't survive a
+  restart (resets to "ready now" — a bounded, minor politeness cost, not a
+  correctness issue), and no snapshotting/compaction yet (revisit once
+  replay time or disk usage is a measured problem, not before).
