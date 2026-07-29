@@ -56,7 +56,12 @@ func TestCrawl_RespectsPolitenessAcrossConcurrentWorkers(t *testing.T) {
 	srvB := httptest.NewServer(handlerB)
 	defer srvB.Close()
 
-	const delay = 50 * time.Millisecond
+	// A larger delay than strictly necessary gives real headroom against
+	// scheduling jitter when the full test suite runs in parallel under
+	// -race (verified this flakes at 50ms/10ms tolerance under full-suite
+	// contention, though it passes reliably in isolation - the underlying
+	// politeness logic was never wrong, the margin was just too tight).
+	const delay = 100 * time.Millisecond
 	const perHost = 3
 
 	f := frontier.New(delay, time.Now)
@@ -97,7 +102,7 @@ func checkSpacing(t *testing.T, label string, timestamps []time.Time, minDelay t
 		t.Fatalf("%s: got %d requests, want at least 2 to check spacing", label, len(timestamps))
 	}
 	sort.Slice(timestamps, func(i, j int) bool { return timestamps[i].Before(timestamps[j]) })
-	const jitterTolerance = 10 * time.Millisecond
+	const jitterTolerance = 30 * time.Millisecond
 	for i := 1; i < len(timestamps); i++ {
 		gap := timestamps[i].Sub(timestamps[i-1])
 		if gap < minDelay-jitterTolerance {

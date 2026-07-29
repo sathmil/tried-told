@@ -449,3 +449,33 @@ collection. Kept as a background item rather than a blocker.
   no passage contains the specific merged-word failure mode the unfixed
   version would have produced — a regression test for the exact bug found,
   not just a feature test.
+
+## 16. Language detection
+
+- `lingua-go`, not hand-rolled — same "library for tooling, not core IR
+  objectives" reasoning as `grobotstxt`/`goquery`. Matters here specifically
+  because mixed-language content in one index pollutes BM25 stats (shared
+  tokens with an unrelated-language passage still skew IDF), and because it
+  turns "the corpus is probably mostly English" into a measurable fact
+  instead of an assumption — directly useful for the representation-gaps
+  documentation this project already owes.
+- Picked partly because it specifically claims and tests accuracy on
+  *short* text (single words/phrases), unlike most language-ID libraries
+  tuned for long documents — matches our actual passages, which are short
+  reviews.
+- **Real gap found by testing, not assumed:** fed `"xyz"` (3 characters)
+  expecting `(Unknown, false)`, got `(German, true)` instead. The
+  library's own confidence flag guards against statistical ambiguity
+  *between* candidate languages, not against text simply being too short
+  to mean anything. Added our own minimum-length gate (20 runes) on top of
+  the library's own check — same "don't invent metadata we're not
+  confident about" principle used everywhere else in this component.
+- Measured, not assumed: first call in a process takes ~7s (loading all 75
+  language models once); every call after is fast. Worth knowing as a
+  real batch-pipeline startup cost.
+- **Collateral finding:** adding this package's ~35s test changed the full
+  suite's parallel-execution profile enough to expose a flaky test in
+  `internal/fetch` (real timing margin too tight for legitimate scheduling
+  jitter under `-race` + full-suite contention — passed reliably in
+  isolation every time, confirming the underlying logic was never wrong).
+  Widened the test's margin rather than ignoring the flake.
