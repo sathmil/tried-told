@@ -508,3 +508,33 @@ collection. Kept as a background item rather than a blocker.
   weeks," matched) and a spelled-out one ("two weeks," deliberately not
   matched) in the same file — proves the positive path and the intentional
   recall boundary together, not just in isolated unit tests.
+
+## 18. Source attribution
+
+- A **registry**, not per-passage duplication — same reasoning as the
+  extractor registry: one declared source of truth per host (type,
+  license, attribution text, deletion contact) avoids drift, and makes
+  policy auditable as one thing instead of scattered across every passage
+  from that source.
+- Closed a real gap: earlier design docs (like doc 03, for the synthetic
+  corpus) documented source policy as prose for human due diligence, but
+  nothing in code actually connected that documentation to what got
+  served. This registry makes the policy a runtime fact, not just
+  something written down once and trusted to stay true.
+- **Fixed `SourceType` set, not free text** — specifically to prevent the
+  harm the spec names directly: presenting a third-party review as an
+  opt-in story. A closed set makes that distinction exact and queryable,
+  not something a typo or inconsistent label could blur.
+- `MustLookup` panics on an undeclared host rather than silently serving
+  unlabeled content — content from a source with no declared policy must
+  never be served, so a missing registration should fail loudly at the
+  point of use. Same "panic on a should-never-happen condition" reasoning
+  as `PersistentRegistry.SeenOrAdd`.
+- Doesn't yet cover the Milestone 1 synthetic corpus (it uses a simpler
+  flat string, no real host to key by) — noted as a deliberate scope
+  boundary, revisit once real crawled and synthetic data actually need
+  combining into one index.
+- Test worth naming: ran the *real* extractor against the *real* fixture
+  and confirmed the actual produced passages resolve through their
+  `SourceURL` to the correct declared policy — not just that the registry
+  behaves correctly in isolation.
