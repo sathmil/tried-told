@@ -1,0 +1,43 @@
+[
+  {
+    "query": "sunscreen that doesn't leave a white cast on deep skin in humid weather",
+    "judgments": [{"doc_id": 0, "relevance": 2}, {"doc_id": 3, "relevance": 1}]
+  },
+  {
+    "query": "foundation for olive undertones that doesn't oxidize",
+    "judgments": [{"doc_id": 9, "relevance": 2}, {"doc_id": 8, "relevance": 1}, {"doc_id": 12, "relevance": 1}, {"doc_id": 14, "relevance": 1}]
+  },
+  {
+    "query": "moisturizer experiences from people with oily, sensitive skin",
+    "judgments": [{"doc_id": 16, "relevance": 2}, {"doc_id": 18, "relevance": 2}, {"doc_id": 17, "relevance": 1}, {"doc_id": 21, "relevance": 1}, {"doc_id": 20, "relevance": 1}]
+  },
+  {
+    "query": "concealer that didn't crease on dry under-eyes",
+    "judgments": [{"doc_id": 24, "relevance": 2}, {"doc_id": 23, "relevance": 1}, {"doc_id": 29, "relevance": 1}, {"doc_id": 27, "relevance": 1}]
+  },
+  {
+    "query": "best sunscreen for oily skin that doesn't feel greasy",
+    "judgments": [{"doc_id": 2, "relevance": 2}, {"doc_id": 4, "relevance": 1}, {"doc_id": 5, "relevance": 1}]
+  },
+  {
+    "query": "products that hold up in humid tropical climates without feeling heavy",
+    "judgments": [{"doc_id": 22, "relevance": 2}, {"doc_id": 2, "relevance": 1}, {"doc_id": 15, "relevance": 1}, {"doc_id": 5, "relevance": 1}, {"doc_id": 17, "relevance": 1}]
+  },
+  {
+    "query": "makeup that stays true to color all day without turning weird colors",
+    "note": "deliberate difficult paraphrase - describes oxidation without using the word 'oxidize'",
+    "judgments": [{"doc_id": 9, "relevance": 2}, {"doc_id": 8, "relevance": 1}, {"doc_id": 12, "relevance": 1}, {"doc_id": 15, "relevance": 1}, {"doc_id": 11, "relevance": 1}, {"doc_id": 25, "relevance": 1}, {"doc_id": 28, "relevance": 1}, {"doc_id": 6, "relevance": 1}]
+  },
+  {
+    "query": "concealer that creases and settles into fine lines",
+    "judgments": [{"doc_id": 23, "relevance": 2}, {"doc_id": 27, "relevance": 2}, {"doc_id": 29, "relevance": 1}]
+  },
+  {
+    "query": "South Asian skin tone product matches",
+    "judgments": [{"doc_id": 9, "relevance": 2}, {"doc_id": 1, "relevance": 1}]
+  },
+  {
+    "query": "moisturizer that doesn't clog pores for acne-prone skin",
+    "judgments": [{"doc_id": 16, "relevance": 2}, {"doc_id": 4, "relevance": 1}, {"doc_id": 18, "relevance": 1}, {"doc_id": 21, "relevance": 1}]
+  }
+]

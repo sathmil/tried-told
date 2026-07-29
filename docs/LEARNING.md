@@ -52,3 +52,99 @@ Every entry is tagged `"source": "synthetic"` so it can never be mistaken for
 real user data, and **this set does not count toward the real 500–1,000
 document corpus target** — it's a disposable test fixture, not early corpus
 growth. Real sourcing is separate future work.
+
+## 3. BM25 scoring
+
+Implemented Okapi BM25 from scratch (`internal/bm25`):
+- **IDF** uses the smoothed `+1` variant, so it's always >= 0. Pairs directly
+  with the no-stopword-removal decision above — since we don't filter common
+  words out, IDF has to self-suppress them toward zero instead. An unsmoothed
+  IDF would go negative for very common terms, actively penalizing a document
+  just for containing them.
+- **TF saturates at `k1+1`** as frequency grows — proven with a test that
+  drives frequency to 1 billion and checks the result converges, rather than
+  just asserting it.
+- **`k1`/`b` are parameters**, not constants (`Params{K1, B}`), with literature
+  defaults (`1.5`, `0.75`) in `DefaultParams` — tunable later via the eval
+  harness, never the held-out test set.
+- **`index.Index` had to grow** from a bare postings map into a struct also
+  holding `DocLen []int`, `AvgDocLen`, `N` — document length is a property of
+  the doc, not any term, so it's stored once per DocID rather than duplicated
+  into every posting. This forced tightening `BuildIndex`'s invariant from
+  "strictly ascending IDs" to "contiguous IDs starting at 0," since `DocLen`
+  uses DocID directly as a slice index — the same assumption `IndexDoc`/
+  `DocMeta` already made back in decision 1, just not enforced yet.
+- **`Search`** accumulates each query term's contribution into
+  `scores[DocID]` — the concrete payoff of giving `Posting` a `DocID` back in
+  decision 1: contributions from different query terms have to land on the
+  same document to sum into one total score.
+
+## 4. Search endpoint
+
+- Standard library `net/http` only — no router framework; not justified at
+  this scale.
+- The index is built once at startup and never mutated while serving, so
+  concurrent request goroutines only ever *read* it. No mutex needed — Go
+  maps are unsafe for concurrent read+write, but concurrent-reads-only is
+  fine.
+- Response is minimal on purpose: `doc_id`, `score`, `text`, `source`,
+  `product`, `skin_tone`, `climate`. No snippets/highlighting/"why this
+  matched" yet — that's later serving-milestone work.
+
+## 5. Minimal UI
+
+- One static HTML page, vanilla JS, embedded into the Go binary via
+  `go:embed` — a single deployable binary with no separate frontend build
+  step, which matters for the "cheap to host" goal later.
+- Caught a real bug while testing in-browser: the page had no explicit
+  `background-color`, so it inherited a dark shell and the text was nearly
+  unreadable. Fixed with an explicit background + a `color-scheme` meta tag.
+- Result text/metadata render via `textContent`-based escaping, not raw
+  string interpolation into `innerHTML` — matters once real (untrusted)
+  scraped content replaces the synthetic set.
+
+## 6. Initial evaluation queries
+
+- 10 hand-judged queries stored as **sparse qrels** — only relevant docs
+  listed per query, everything else implicitly irrelevant. Exhaustive
+  per-doc judging doesn't scale past a toy corpus, so the workflow has to
+  already be the one that scales (same idea TREC-style qrels use).
+- Computed Precision@10 and MRR now; deferred Recall@10 (meaningless without
+  exhaustive judgments) and nDCG@10 (more machinery than this checkpoint
+  needs) to the fuller evaluation harness at the next corpus checkpoint.
+- **Result: MRR = 1.0**, but mean P@10 = 0.30. Traced the low P@10 to a real
+  metric limitation, not a ranking failure: several queries have fewer than
+  10 total relevant docs in the whole 30-doc corpus, which caps P@10 well
+  below 1.0 even for perfect ranking. Documented in
+  `docs/eval/milestone1-results.md` rather than left unexplained.
+- Planted a deliberate "difficult paraphrase" query (describes oxidation
+  without the word "oxidize") to stress-test vocabulary mismatch. It didn't
+  actually score worse — a useful negative result, not a wasted one: the
+  query wasn't a strong enough test, and a real version of this comparison
+  belongs with semantic/hybrid retrieval later.
+
+## Milestone 1 reflection
+
+What recurred across every decision, in one line each:
+- **Structure follows access pattern.** Slice vs. map, dense vs. sparse
+  judgments, sorted-by-construction vs. explicit-sort — every one of these
+  came down to "what does the code that reads this actually do with it,"
+  not "which structure sounds more sophisticated."
+- **Prove properties, don't assert them.** The BM25 saturation test doesn't
+  just check a number — it drives frequency to 1e9 and checks convergence to
+  `k1+1`. The IDF tests check the actual guarantee (never negative), not just
+  a sample value.
+- **Design for the scale after this one, not the scale after that.**
+  Sparse qrels over exhaustive judging, `DocID`-indexed `DocLen` over
+  per-posting length, contiguous ID enforcement — all decided by asking
+  "does this still work at 50,000 docs," not by what's easiest at 30.
+- **Every claim has a receipt.** No stopword removal, no dense judging, no
+  quality claim — each came with a doc explaining why, and a test or a
+  results table proving it, not just a comment.
+
+What's still explicitly *not* validated: real corpus data (everything here is
+synthetic), a disk-backed index (everything is in-memory), phrase/positional
+search (postings don't carry positions yet), semantic retrieval (lexical-only
+so far), and evaluation at any real scale (10 queries over 30 docs, not 50+
+over 5,000+). All of that is the deliberate scope of Milestone 1, not an
+oversight — the next real decision is what to scale first.
