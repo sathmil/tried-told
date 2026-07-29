@@ -25,29 +25,37 @@ func TestExampleSiteExtractor_ExtractsPassagesAndSkipsBoilerplate(t *testing.T) 
 
 	want := []Passage{
 		{
-			Text:      "This sunscreen didn't leave a white cast on my deep skin, even after sweating in humid weather.",
-			SourceURL: "https://example-reviews.test/product/1",
-			Product:   "Hydrating Sunscreen SPF 50",
+			Text:            "This sunscreen didn't leave a white cast on my deep skin, even after sweating in humid weather.",
+			SourceURL:       "https://example-reviews.test/product/1",
+			Product:         "Hydrating Sunscreen SPF 50",
+			ProductCategory: "Sunscreen",
 		},
 		{
-			Text:      "Left a chalky residue on my olive undertone, disappointing.",
-			SourceURL: "https://example-reviews.test/product/1",
-			Product:   "Hydrating Sunscreen SPF 50",
+			Text:            "Left a chalky residue on my olive undertone, disappointing.",
+			SourceURL:       "https://example-reviews.test/product/1",
+			Product:         "Hydrating Sunscreen SPF 50",
+			ProductCategory: "Sunscreen",
 		},
 		{
-			Text:      "Brightened my skin within two weeks of daily use.",
-			SourceURL: "https://example-reviews.test/product/1",
-			Product:   "Vitamin C Serum",
+			Text:            "Brightened my skin within 2 weeks of daily use.",
+			SourceURL:       "https://example-reviews.test/product/1",
+			Product:         "Vitamin C Serum",
+			ProductCategory: "Serum",
+			DurationOfUse:   "2 weeks",
 		},
 		{
-			Text:      "First I tried this on my face for two weeks and it felt lightweight.",
-			SourceURL: "https://example-reviews.test/product/1",
-			Product:   "Multi Paragraph Moisturizer",
+			Text:            "First I tried this on my face for two weeks and it felt lightweight.",
+			SourceURL:       "https://example-reviews.test/product/1",
+			Product:         "Multi Paragraph Moisturizer",
+			ProductCategory: "Moisturizer",
+			// "two weeks" is spelled out, not digit-based - deliberately not
+			// matched by ExtractDuration, so DurationOfUse stays empty here.
 		},
 		{
-			Text:      "Then I noticed it also helped soften the dry patches on my hands.",
-			SourceURL: "https://example-reviews.test/product/1",
-			Product:   "Multi Paragraph Moisturizer",
+			Text:            "Then I noticed it also helped soften the dry patches on my hands.",
+			SourceURL:       "https://example-reviews.test/product/1",
+			Product:         "Multi Paragraph Moisturizer",
+			ProductCategory: "Moisturizer",
 		},
 	}
 	for i, w := range want {

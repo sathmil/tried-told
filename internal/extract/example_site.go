@@ -5,16 +5,25 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
+	"triedandtold/internal/metadata"
 	"triedandtold/internal/segment"
 )
 
 // ExampleSiteExtractor is a site-specific extractor for a hypothetical
 // review site (see testdata/example_site.html), demonstrating the pattern:
-// each review lives in a ".review" element with a "data-product"
-// attribute, and its text in a nested ".review-text" element containing
-// one or more paragraphs. Everything else on the page (nav, ads, footer)
-// is simply never selected, rather than attempting to generically detect
-// "boilerplate."
+// each review lives in a ".review" element with "data-product" and
+// "data-category" attributes (source-structured metadata), and its text in
+// a nested ".review-text" element containing one or more paragraphs.
+// Free-text metadata (currently duration of use) is pulled from the text
+// itself via internal/metadata's rule-based extraction. Everything else on
+// the page (nav, ads, footer) is simply never selected, rather than
+// attempting to generically detect "boilerplate."
+//
+// Duration extraction is invoked directly here since this is currently the
+// only extractor; once a second site-specific extractor exists, this
+// should move to a shared post-extraction enrichment step so every future
+// extractor gets it automatically rather than needing to remember to wire
+// it in - see docs/design/16-structured-metadata.md.
 type ExampleSiteExtractor struct{}
 
 func (ExampleSiteExtractor) Extract(html, sourceURL string) ([]Passage, error) {
@@ -30,13 +39,19 @@ func (ExampleSiteExtractor) Extract(html, sourceURL string) ([]Passage, error) {
 			return // nothing to index - don't invent a passage from empty content
 		}
 		product, _ := s.Attr("data-product")
+		category, _ := s.Attr("data-category")
 
 		for _, paragraph := range segment.Paragraphs(text) {
-			passages = append(passages, Passage{
-				Text:      paragraph,
-				SourceURL: sourceURL,
-				Product:   product,
-			})
+			p := Passage{
+				Text:            paragraph,
+				SourceURL:       sourceURL,
+				Product:         product,
+				ProductCategory: category,
+			}
+			if duration, ok := metadata.ExtractDuration(paragraph); ok {
+				p.DurationOfUse = duration
+			}
+			passages = append(passages, p)
 		}
 	})
 

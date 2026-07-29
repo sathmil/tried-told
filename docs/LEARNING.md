@@ -479,3 +479,32 @@ collection. Kept as a background item rather than a blocker.
   jitter under `-race` + full-suite contention — passed reliably in
   isolation every time, confirming the underlying logic was never wrong).
   Widened the test's margin rather than ignoring the flake.
+
+## 17. Structured metadata extraction
+
+- Two sourcing mechanisms, not one: **source-structured** fields (Product,
+  ProductCategory, SkinTone, Climate — the site itself marks these up, e.g.
+  `data-*` attributes) extracted via the site-specific extractor; **free-text**
+  fields (duration of use, and — deferred — concern/goal, positive/negative
+  observations) mentioned in review prose, requiring pattern extraction from
+  the text itself.
+- The "no LLM guessing" rule directly shapes free-text extraction: only
+  rule-based (regex/keyword) matching is allowed, which is fully
+  explainable but **deliberately low-recall by design** —
+  `ExtractDuration` matches "3 weeks" but not "three weeks" or "a while."
+  Not a bug — the accepted cost of refusing to guess. Better empty than
+  wrong.
+- Scoped duration in now (genuinely narrow pattern: digit + time unit) and
+  deferred concern/sentiment extraction — not because they're less useful,
+  but because there's no real data yet to validate any keyword list's
+  recall against. Same "don't tune without real data" reasoning as the
+  SimHash threshold and the generic-boilerplate fallback.
+- Documented a seam rather than over-building: duration extraction is
+  called directly inside the one extractor that exists today; noted
+  explicitly that it should move to a shared post-extraction step once a
+  second extractor exists, rather than building that shared step
+  speculatively now.
+- Test worth naming: the fixture has both a digit-based duration ("2
+  weeks," matched) and a spelled-out one ("two weeks," deliberately not
+  matched) in the same file — proves the positive path and the intentional
+  recall boundary together, not just in isolated unit tests.

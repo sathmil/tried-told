@@ -8,11 +8,13 @@ package extract
 // guessed when a page doesn't explicitly state them - never invent what
 // isn't there.
 type Passage struct {
-	Text      string
-	SourceURL string
-	Product   string
-	SkinTone  string
-	Climate   string
+	Text            string
+	SourceURL       string
+	Product         string
+	ProductCategory string
+	SkinTone        string
+	Climate         string
+	DurationOfUse   string // explicitly stated in the text, e.g. "3 weeks" - see internal/metadata
 }
 
 // Extractor turns one fetched page's HTML into its constituent passages.
