@@ -17,9 +17,10 @@ func TestExampleSiteExtractor_ExtractsPassagesAndSkipsBoilerplate(t *testing.T) 
 		t.Fatalf("Extract returned error: %v", err)
 	}
 
-	// Fourth review in the fixture has blank text and must be skipped.
-	if len(passages) != 3 {
-		t.Fatalf("got %d passages, want 3", len(passages))
+	// 3 single-paragraph reviews + the multi-paragraph review split into 2
+	// passages; the blank-text review is skipped entirely.
+	if len(passages) != 5 {
+		t.Fatalf("got %d passages, want 5", len(passages))
 	}
 
 	want := []Passage{
@@ -38,6 +39,16 @@ func TestExampleSiteExtractor_ExtractsPassagesAndSkipsBoilerplate(t *testing.T) 
 			SourceURL: "https://example-reviews.test/product/1",
 			Product:   "Vitamin C Serum",
 		},
+		{
+			Text:      "First I tried this on my face for two weeks and it felt lightweight.",
+			SourceURL: "https://example-reviews.test/product/1",
+			Product:   "Multi Paragraph Moisturizer",
+		},
+		{
+			Text:      "Then I noticed it also helped soften the dry patches on my hands.",
+			SourceURL: "https://example-reviews.test/product/1",
+			Product:   "Multi Paragraph Moisturizer",
+		},
 	}
 	for i, w := range want {
 		if passages[i] != w {
@@ -52,6 +63,16 @@ func TestExampleSiteExtractor_ExtractsPassagesAndSkipsBoilerplate(t *testing.T) 
 			if strings.Contains(p.Text, frag) {
 				t.Errorf("passage %+v unexpectedly contains boilerplate fragment %q", p, frag)
 			}
+		}
+	}
+
+	// The bug this whole segmentation pass caught: without an explicit
+	// paragraph separator, the two paragraphs of the multi-paragraph review
+	// would merge into one run with no space - "lightweight.Then" - once
+	// goquery flattened them. Confirm that never happens in any passage.
+	for _, p := range passages {
+		if strings.Contains(p.Text, "lightweight.Then") {
+			t.Errorf("passage %+v has merged paragraph text with no separator", p)
 		}
 	}
 }

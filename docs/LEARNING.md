@@ -417,3 +417,35 @@ collection. Kept as a background item rather than a blocker.
   review lands closer than genuinely unrelated text. That's an empirical
   check the algorithm behaves as claimed on data like this project's own
   corpus, not just a theoretical assumption.
+
+## 15. Passage segmentation
+
+- Split at **paragraph boundaries**, not fixed-size token windows and not
+  "never split a review further." Fixed windows need a size parameter to
+  guess at with no real data to tune it against; paragraph breaks are a
+  structural signal the author already put there, and — importantly — a
+  no-op for anything that's already one paragraph, which is most of what
+  this corpus looks like. Only matters for the rare long, multi-topic
+  review, exactly where keeping everything in one passage would dilute
+  relevance the most.
+- My first instinct was "don't segment at all, I want more info" — caught
+  as conflating two different things: retrieval precision (hurt by keeping
+  everything together) and reading richness (doesn't actually require
+  keeping everything as one indexed unit). Indexing finer for scoring
+  precision costs nothing for the reader, since the full original text
+  stays available to display/link back to regardless of indexing
+  granularity.
+- **Real bug caught before segmentation could even work:** verified
+  directly (didn't assume) that goquery's `.Text()` on an element with
+  multiple `<p>` children concatenates them with **no separator at all** —
+  `"First.Second."`, not `"First. Second."`. Paragraph splitting is
+  meaningless if the boundaries are already gone, and worse, this would
+  silently merge words together across a real paragraph break once
+  tokenized (`"...was high"` + `"The quality..."` → the single garbled
+  token `"highthe"`). Fixed by having the extractor join `<p>` children
+  with an explicit `"\n\n"` before segmentation ever sees the text.
+- Test worth naming: the fixture now has a genuine multi-paragraph review,
+  and the test asserts not just that it splits into two passages, but that
+  no passage contains the specific merged-word failure mode the unfixed
+  version would have produced — a regression test for the exact bug found,
+  not just a feature test.
