@@ -24,5 +24,12 @@ type Posting struct {
 	Freq  int
 }
 
-// Index maps a term to its postings list, sorted ascending by DocID.
-type Index map[string][]Posting
+// Index holds the postings map plus the per-corpus statistics BM25 needs
+// (document length is a property of the document, not of any term, so it's
+// stored once per DocID rather than duplicated into every posting).
+type Index struct {
+	Postings  map[string][]Posting // term -> postings, sorted ascending by DocID
+	DocLen    []int                // DocLen[docID] = token count of that document
+	AvgDocLen float64
+	N         int // total number of documents
+}

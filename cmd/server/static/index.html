@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="color-scheme" content="light">
+<title>Tried &amp; Told</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fff; }
+  input[type=text] { width: 65%; padding: 0.5rem; font-size: 1rem; }
+  button { padding: 0.5rem 1rem; font-size: 1rem; }
+  .result { border-bottom: 1px solid #ddd; padding: 1rem 0; }
+  .meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
+  .score { color: #999; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<h1>Tried &amp; Told</h1>
+<p>Search first-person skincare and makeup experiences.</p>
+<form id="search-form">
+  <input type="text" id="q" placeholder="e.g. sunscreen that doesn't leave a white cast" autofocus>
+  <button type="submit">Search</button>
+</form>
+<div id="results"></div>
+
+<script>
+const form = document.getElementById('search-form');
+const resultsEl = document.getElementById('results');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  resultsEl.textContent = 'Searching...';
+  try {
+    const res = await fetch('/search?q=' + encodeURIComponent(q));
+    if (!res.ok) {
+      resultsEl.textContent = 'Error: ' + res.status;
+      return;
+    }
+    render(await res.json());
+  } catch (err) {
+    resultsEl.textContent = 'Error: ' + err;
+  }
+});
+
+function render(results) {
+  if (results.length === 0) {
+    resultsEl.innerHTML = '<p>No results.</p>';
+    return;
+  }
+  resultsEl.innerHTML = results.map(r => {
+    const metaParts = [r.product, r.skin_tone, r.climate].filter(Boolean);
+    return `
+      <div class="result">
+        <div>${escapeHtml(r.text)}</div>
+        <div class="meta">${metaParts.map(escapeHtml).join(' · ')} · ${escapeHtml(r.source)}</div>
+        <div class="score">score: ${r.score.toFixed(3)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Uses the DOM's own text-insertion escaping rather than string concatenation,
+// since result text/metadata will eventually come from real (untrusted) sources.
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
