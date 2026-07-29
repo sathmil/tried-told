@@ -56,7 +56,7 @@ func TestSearch_UnknownTermReturnsNoResults(t *testing.T) {
 
 func TestSearch_HigherFrequencyScoresHigher(t *testing.T) {
 	idx := index.BuildIndex([]index.IndexDoc{
-		{ID: 0, Text: "sunscreen filler filler"},   // freq(sunscreen)=1, len 3
+		{ID: 0, Text: "sunscreen filler filler"},    // freq(sunscreen)=1, len 3
 		{ID: 1, Text: "sunscreen sunscreen filler"}, // freq(sunscreen)=2, len 3
 	})
 	results := Search(idx, "sunscreen", DefaultParams)

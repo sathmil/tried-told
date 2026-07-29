@@ -47,8 +47,8 @@ func TestBuildIndex(t *testing.T) {
 
 	t.Run("doc lengths and average are computed correctly", func(t *testing.T) {
 		idx := BuildIndex([]IndexDoc{
-			{ID: 0, Text: "one two three"},  // 3 tokens
-			{ID: 1, Text: "four five"},      // 2 tokens
+			{ID: 0, Text: "one two three"}, // 3 tokens
+			{ID: 1, Text: "four five"},     // 2 tokens
 		})
 		if !slices.Equal(idx.DocLen, []int{3, 2}) {
 			t.Errorf("DocLen = %v, want [3, 2]", idx.DocLen)
