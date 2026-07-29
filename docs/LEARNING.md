@@ -34,3 +34,21 @@ ordering assumption were ever violated, the result would be detectably
 "unsorted" rather than silently wrong frequencies. The actual sortedness
 guarantee is enforced separately: `BuildIndex` panics if it ever sees a
 non-increasing DocID.
+
+## 2. Initial corpus sourcing
+
+Used a small hand-authored **synthetic** dataset (`data/synthetic/experiences.jsonl`,
+one JSON object per line, ~30 entries) instead of real scraped/licensed content,
+to avoid ethical issues around using sources not meant to be publicly available
+or redistributable before I've actually done that licensing due diligence.
+
+Two reasons this made sense *now* rather than blocking on real sourcing:
+- This checkpoint's goal is proving the pipeline works end-to-end, not
+  retrieval quality — that comes at the 5,000–10,000 doc checkpoint.
+- Verifying a real dataset's license (or getting opt-in Stackd/Thread data) is
+  genuine due-diligence work that shouldn't gate finishing the vertical slice.
+
+Every entry is tagged `"source": "synthetic"` so it can never be mistaken for
+real user data, and **this set does not count toward the real 500–1,000
+document corpus target** — it's a disposable test fixture, not early corpus
+growth. Real sourcing is separate future work.

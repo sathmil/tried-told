@@ -11,9 +11,11 @@ type IndexDoc struct {
 // DocMeta holds what search results need to render. It shares the same ID
 // as the corresponding IndexDoc.
 type DocMeta struct {
-	ID      int
-	Source  string
-	Product string
+	ID       int
+	Source   string
+	Product  string
+	SkinTone string // as explicitly self-described in the text; empty if unstated
+	Climate  string // as explicitly self-described in the text; empty if unstated
 }
 
 // Posting records that a term occurred Freq times in document DocID.
