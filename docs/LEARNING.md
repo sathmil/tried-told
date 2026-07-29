@@ -148,3 +148,100 @@ search (postings don't carry positions yet), semantic retrieval (lexical-only
 so far), and evaluation at any real scale (10 queries over 30 docs, not 50+
 over 5,000+). All of that is the deliberate scope of Milestone 1, not an
 oversight — the next real decision is what to scale first.
+
+## Corpus sourcing, take two
+
+Tried to shortcut real-data sourcing by asking to scrape ToS-prohibited
+sites "privately, with a note." Correctly refused: a note doesn't cure a
+ToS violation, the project requires a live public URL eventually anyway, and
+it was the exact scenario the project's own ethics section was written to
+prevent. Real research findings instead: Open Beauty Facts is genuinely
+open (ODbL) but is product metadata, not first-person text; the popular
+McAuley Lab Amazon Reviews 2023 dataset has **no stated license anywhere**
+despite being widely used in research; the popular Sephora Kaggle review
+dataset was scraped in violation of Sephora's own Terms of Use regardless of
+whatever license the uploader attached to it. Conclusion: no clean,
+off-the-shelf first-person beauty/skincare dataset exists. Considered
+switching domains entirely to dodge this — rejected, because the sourcing
+problem (UGC platforms almost universally restrict scraping) is general, not
+beauty-specific, and switching would sacrifice the representation-aware
+framing that's the actual point of the project. Decision: keep the domain,
+pursue real opt-in collection + crawler engineering against local mocks in
+parallel, keep looking for genuinely permissive sources in the background.
+
+## 7. Crawler frontier
+
+- Per-host FIFO queues, scheduled by a min-heap of hosts keyed on
+  next-allowed-fetch time. Chosen over a single global FIFO (nothing stops
+  hammering one host) and fixed-delay round-robin (wastes time waiting on
+  the slowest host's rhythm even when a faster host has been ready the
+  whole time) — the heap lets every host advance at its own pace and only
+  blocks the worker when literally every host is in cooldown.
+- `Clock` (`func() time.Time`) is injected rather than calling `time.Now()`
+  directly, so tests advance time instantly instead of sleeping in real
+  time to verify politeness delays.
+- **Real bug caught before shipping:** the first version only remembered a
+  host's cooldown while it had a live heap entry. Once a host's queue fully
+  drained, that memory vanished — so new work arriving shortly after would
+  be treated as immediately eligible, silently violating politeness. Fixed
+  by tracking `lastFetch[host]` independently of queue/heap membership.
+  Caught by a test written specifically to exercise that sequence, not by
+  inspection.
+
+## 8. URL normalization
+
+- Canonicalizes scheme/host case, default ports, fragments, `.`/`..` path
+  segments, and query parameter order. Deliberately does **not** merge
+  trailing-slash variants, `www` vs. non-`www` hosts, or strip tracking
+  params — all heuristic risks, not safe rewrites. Any true duplicates that
+  slip through are meant to be caught later by near-duplicate content
+  detection, not guessed at the URL-string level.
+- **Two real bugs, both caught by testing an assumption instead of trusting
+  it:**
+  1. Assumed Go's `net/url` would auto-canonicalize percent-encoding on
+     reserialization. A test proved it doesn't — `net/url` preserves the
+     *original* escaping (`RawPath`) verbatim for round-trip fidelity.
+  2. The obvious fix (clear `RawPath`) was itself wrong, and worse: since
+     `net/url` fully decodes reserved characters into `Path` too, clearing
+     `RawPath` caused an encoded slash (`%2F`) to silently become a real `/`
+     separator — corrupting the URL's actual structure, not just its
+     spelling. Fixed by decoding only *unreserved* characters (which can
+     never be structurally meaningful) and running dot-segment resolution
+     on the still-escaped string, so a kept `%2F` is never mistaken for a
+     separator.
+- The lesson that mattered more than either bug: both came from reasoning
+  about what a standard library "should" do instead of writing a test that
+  would fail if that reasoning was wrong. The fix each time was a test
+  first, not "being more careful."
+
+## 9. URL dedup registry + Bloom filter
+
+- Two layers: a bit-packed Bloom filter as a fast first-pass check (never
+  false-negatives, can false-positive), backed by an exact SHA-256-keyed map
+  as the authoritative source of truth consulted only when the Bloom filter
+  says "maybe."
+- **Why the Bloom filter can't be the sole registry:** a false positive
+  means "probably seen" for a URL that was never actually crawled. Trusting
+  that alone silently and permanently loses real content, with nothing to
+  notice later — worse than the alternative failure (redundant recrawl,
+  which is just wasteful and self-correcting).
+- **Sizing has a concrete payoff, not just a formula.** For 1,000,000
+  expected URLs at a 1% false-positive rate: `m ≈ 9.6M bits ≈ 1.2 MB`,
+  `k ≈ 7`. That ~1.2 MB structure resolves most checks instantly, versus
+  16MB+ (hashes) or 100MB+ (full strings) to consult the exact registry on
+  every single one.
+- **Storing hashes instead of full URLs reintroduces the same risk one
+  layer down.** The tradeoff isn't "URLs aren't stored" — it's hash
+  collision, which is the identical false-positive failure mode as the
+  Bloom filter, just at the layer that's supposed to be authoritative.
+  Accepted because a 128-bit hash's collision probability at this project's
+  realistic scale (thousands to low millions of URLs) is astronomically
+  small.
+- Used `[]uint64` with manual bit shifting for the Bloom filter's storage,
+  not `[]bool` — a Go `[]bool` takes 1 byte per element, 8x the memory of a
+  real bit array, which would have undercut the entire memory argument for
+  using a Bloom filter at all.
+- Wrote a test that deliberately forces the Bloom filter into guaranteed
+  false-positive mode (`m=1` bit) and confirms the exact registry still
+  gives the correct answer — a direct test of the actual reason this design
+  has two layers, not just an add-then-check smoke test.
