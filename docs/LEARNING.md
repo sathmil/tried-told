@@ -334,3 +334,53 @@ parallel, keep looking for genuinely permissive sources in the background.
   restart (resets to "ready now" — a bounded, minor politeness cost, not a
   correctness issue), and no snapshotting/compaction yet (revisit once
   replay time or disk usage is a measured problem, not before).
+
+## Corpus sourcing, take three
+
+Did another research pass on real sources: found nothing new with genuinely
+open reuse rights. One concrete, informative result — SkincareTalk's
+robots.txt now redirects to TollBit, an AI-content licensing/paywall
+service, meaning that site has deliberately set up infrastructure to
+*charge* crawlers rather than permit free access. Not a source to pursue,
+and a sign of a broader trend (sites gating AI crawlers specifically
+because uninvited scraping got so common) that only reinforces why
+"confirm permission, don't assume it" matters more now, not less. Three
+research rounds without a clean lead means further generic searching has
+hit diminishing returns — real progress from here needs either checking
+specific candidate sites one at a time, or leaning harder into opt-in
+collection. Kept as a background item rather than a blocker.
+
+## 13. Extraction architecture (site-specific extractors)
+
+- New component: turning one fetched HTML page (a *container* - a product
+  page can hold 50 reviews) into individually-searchable `Passage`s. This is
+  the document-level vs. passage-level distinction: the fetched page is the
+  document, but the actual unit to search/rank/return is one review, not
+  the whole page.
+- **Site-specific extractors over a generic boilerplate-removal algorithm**
+  (e.g. a Readability port) — chosen specifically because of how sourcing
+  went this session: the crawler isn't pointed at the open web generically,
+  it'll end up crawling a small number of specifically-vetted sources, and
+  when you already know exactly which few sites you're extracting from, a
+  small per-site extractor is both simpler and far more precise than a
+  generic heuristic. Explicitly not the permanent answer, though: as the
+  corpus scales toward more sources (not just more pages from the same few),
+  hand-writing one extractor per site stops being sustainable — the planned
+  evolution is a generic-algorithm fallback for sources without a dedicated
+  extractor, added once that maintenance cost becomes real, not before.
+- **No real source to point this at yet**, same situation the crawler was
+  in before a real target existed — built and tested against a fixture
+  HTML page standing in for a hypothetical review site, ready to be
+  replaced/joined by a real extractor once a real source clears vetting.
+- Second external dependency: `goquery` (CSS-selector querying over Go's
+  HTML parser) — verified license/maintenance status directly rather than
+  assumed, same practice as `grobotstxt`. Parsing arbitrary HTML correctly
+  is a real problem on its own, not a core learning objective here.
+- Kept `Passage`'s metadata deliberately narrow (`Product`, `SkinTone`,
+  `Climate` — same vocabulary as `index.DocMeta`) rather than building out
+  the full metadata list (concern, duration, positive/negative
+  observations) all at once. That's its own separate, later decision.
+- Test worth naming: explicitly asserts known boilerplate fragments (nav
+  text, ad copy, footer copyright) never leak into any extracted passage,
+  and that a review with blank text is skipped rather than producing an
+  empty passage — not just checking that the right passages came out.
