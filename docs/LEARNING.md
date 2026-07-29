@@ -384,3 +384,36 @@ collection. Kept as a background item rather than a blocker.
   text, ad copy, footer copyright) never leak into any extracted passage,
   and that a review with blank text is skipped rather than producing an
   empty passage — not just checking that the right passages came out.
+
+## 14. Near-duplicate detection (SimHash)
+
+- **SimHash, not MinHash** — both solve the same problem exact hashing
+  can't (a single differing character produces a totally different hash),
+  but they estimate different similarity notions: MinHash estimates
+  Jaccard/set-overlap (fits verbatim copies), SimHash estimates
+  cosine/weighted-feature similarity over a compact bit fingerprint (more
+  tolerant of reordering/light rewording). My first justification for
+  SimHash ("get rid of near-dups so opinions are equal") was just
+  restating the shared goal, not an actual reason to prefer one over the
+  other — the real reason came from thinking about what kind of
+  near-duplicate this corpus will actually have: reworded/paraphrased
+  reposts of the same review, not verbatim copies (those are already
+  caught free by the exact-hash dedup registry). SimHash is specifically
+  suited to the case exact hashing structurally cannot touch.
+- Reused the existing tokenizer for features instead of building separate
+  shingling — one less thing to design from scratch, and unigram tokens
+  weighted by occurrence count worked fine.
+- **Threshold stays conservative and explicitly provisional** — a loose
+  threshold risks disproportionately erasing minority-context content
+  (scarcer by definition, and more likely to look "similar to itself" by
+  shared specific vocabulary even when describing genuinely different
+  experiences), while majority-pattern content has plenty of redundant
+  copies to spare. The exact numeric cutoff isn't locked in from theory —
+  it's a parameter to `IsNearDuplicate`, meant to be validated against real
+  judged examples once real data exists.
+- Test worth naming: didn't assert a specific Hamming-distance number
+  (a brittle magic number with no real justification) — asserted the
+  *comparative* property that actually matters, that a paraphrase of a
+  review lands closer than genuinely unrelated text. That's an empirical
+  check the algorithm behaves as claimed on data like this project's own
+  corpus, not just a theoretical assumption.
