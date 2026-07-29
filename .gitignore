@@ -28,5 +28,15 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# OS noise
+.DS_Store
+
+# Python (offline embeddings/eval, later milestones)
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
