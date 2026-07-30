@@ -786,3 +786,47 @@ entries 12-19.
   algorithm, not just query-time combination). `MultiSegment` makes an
   unbounded number of segments queryable; it doesn't keep that number
   bounded over time. Next piece, not this one.
+
+## 26. Semantic indexing, part 1: offline embeddings + interchange format
+
+First Python code in the project — scoped strictly to offline batch
+generation, per the original stack mandate (Go owns indexing/serving).
+
+- **Retrieval-tuned model over general-purpose**: `bge-small-en-v1.5`
+  (MIT, 384-dim), chosen over something like `all-MiniLM-L6-v2` because
+  general-purpose sentence-similarity models are trained for "are these
+  two sentences paraphrases," while our actual task — find passages
+  relevant to a query — is what retrieval-tuned models (contrastive,
+  asymmetric objective) are specifically trained for. Verified the model's
+  license/dimension/convention from its card rather than assumed.
+- **Asymmetric encoding is a real correctness detail, not a footnote**:
+  BGE requires an instruction prefix on queries but never on passages.
+  `generate_embeddings.py` embeds passages only and deliberately adds no
+  prefix — encoding a query correctly is the query service's job later,
+  not this script's, and conflating the two would silently produce worse
+  results.
+- **The real risk in this format, named precisely**: every earlier binary
+  format in this project was Go writing and Go reading — self-consistent
+  even if some serialization assumption were wrong. This is the first
+  format where Python writes and Go reads, a genuine cross-language
+  byte-compatibility risk. Reasoned through why it should match
+  (`encoding/binary.Write`'s no-padding field serialization vs. Python's
+  `struct.pack("<...")` no-padding little-endian mode) — then **verified
+  empirically anyway**: ran the real script, read the real output with the
+  real Go reader, confirmed correct version/dimension/IDs and that vectors
+  are genuinely unit-normalized (L2 norm 1.0). Reasoning predicted it;
+  only the actual run proved it.
+- Same header/sections/checksum format as the lexical index's segment
+  file, for consistency rather than inventing a new pattern.
+- `VERSION` is our own convention marker ("model + how we use it"), not
+  the model's own HuggingFace revision hash — a consumer should be able to
+  check this string against what it expects before trusting the file, if
+  either the model or our normalization/prefix convention ever changes.
+- Test worth naming: `TestOpen_RealPythonGeneratedFile` uses a fixture
+  committed once from genuine script output, not regenerated at test time
+  (would require Python + the actual model wherever tests run) — proof
+  against real output, not just Go-authored bytes shaped to match the
+  reader's own assumptions.
+- Deliberately not built yet: the actual HNSW graph (build + query) from
+  these vectors. This pass proves generation + interchange work
+  end-to-end; wiring `github.com/coder/hnsw` is the next, separate piece.
