@@ -672,3 +672,30 @@ entries 12-19.
   and tombstone-aware querying (checking `DeletionLog` during search).
   This pass was "build and read one correct, immutable segment" — the
   same small-provable-units scoping as everything else this session.
+
+## 22. Lexical index upgrade, part 3: BM25 against either backend
+
+- `bm25.Search` now takes a small interface (`Postings`/`N`/`AvgDocLen`/
+  `DocLen`) instead of the concrete in-memory `index.Index` struct, with
+  adapters (`WrapInMemory`, `WrapSegment`) letting the same scoring code
+  run against either backend.
+- **Real reason for adapters, not methods directly on `index.Index`**:
+  `index.Index` has public *fields* named `N`/`AvgDocLen`/`DocLen` — Go
+  doesn't allow a method and a field to share a name on one type, so
+  adding matching methods directly was never an option without renaming
+  fields and breaking every existing caller. Small wrapper types sidestep
+  the collision entirely without touching either backend's existing code.
+- `bm25.Posting{DocID, Freq}` is deliberately backend-agnostic — the
+  in-memory index has `Freq` directly; a disk segment only has positions,
+  with `Freq` derived as `len(Positions)`. Each adapter does that
+  translation once, at the boundary, so `Search` itself stays ignorant of
+  which backend produced any given posting.
+- **The test that actually matters here isn't "it returns something."**
+  `TestSearch_InMemoryAndSegmentAgreeOnRealExtractedData` indexes the same
+  real extracted passages both ways and asserts *identical* scores and
+  rankings through both backends — a real proof the disk-backed path
+  faithfully reproduces already-validated behavior, not just that it
+  doesn't crash.
+- Still open: passage tombstones aren't checked during search yet — a
+  deleted passage still returns if its segment still contains it. Next
+  natural piece, not bundled into this one.

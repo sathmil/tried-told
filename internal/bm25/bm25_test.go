@@ -40,7 +40,7 @@ func TestSearch_ExcludesNonMatchingDocs(t *testing.T) {
 		{ID: 0, Text: "sunscreen"},
 		{ID: 1, Text: "moisturizer"},
 	})
-	results := Search(idx, "sunscreen", DefaultParams)
+	results := Search(WrapInMemory(idx), "sunscreen", DefaultParams)
 	if len(results) != 1 || results[0].DocID != 0 {
 		t.Errorf("Search = %v, want exactly doc 0", results)
 	}
@@ -48,7 +48,7 @@ func TestSearch_ExcludesNonMatchingDocs(t *testing.T) {
 
 func TestSearch_UnknownTermReturnsNoResults(t *testing.T) {
 	idx := index.BuildIndex([]index.IndexDoc{{ID: 0, Text: "sunscreen"}})
-	results := Search(idx, "nonexistentterm", DefaultParams)
+	results := Search(WrapInMemory(idx), "nonexistentterm", DefaultParams)
 	if len(results) != 0 {
 		t.Errorf("Search = %v, want empty", results)
 	}
@@ -59,7 +59,7 @@ func TestSearch_HigherFrequencyScoresHigher(t *testing.T) {
 		{ID: 0, Text: "sunscreen filler filler"},    // freq(sunscreen)=1, len 3
 		{ID: 1, Text: "sunscreen sunscreen filler"}, // freq(sunscreen)=2, len 3
 	})
-	results := Search(idx, "sunscreen", DefaultParams)
+	results := Search(WrapInMemory(idx), "sunscreen", DefaultParams)
 	if len(results) != 2 || results[0].DocID != 1 {
 		t.Errorf("Search = %v, want doc 1 (freq 2) ranked above doc 0 (freq 1)", results)
 	}
@@ -70,7 +70,7 @@ func TestSearch_MatchingMoreQueryTermsScoresHigher(t *testing.T) {
 		{ID: 0, Text: "sunscreen white cast"},
 		{ID: 1, Text: "sunscreen only"},
 	})
-	results := Search(idx, "sunscreen white cast", DefaultParams)
+	results := Search(WrapInMemory(idx), "sunscreen white cast", DefaultParams)
 	if len(results) != 2 || results[0].DocID != 0 {
 		t.Errorf("Search = %v, want doc 0 (matches all 3 terms) ranked above doc 1", results)
 	}
@@ -81,7 +81,7 @@ func TestSearch_TiesBreakByAscendingDocID(t *testing.T) {
 		{ID: 0, Text: "sunscreen"},
 		{ID: 1, Text: "sunscreen"},
 	})
-	results := Search(idx, "sunscreen", DefaultParams)
+	results := Search(WrapInMemory(idx), "sunscreen", DefaultParams)
 	if len(results) != 2 || results[0].DocID != 0 || results[1].DocID != 1 {
 		t.Errorf("Search = %v, want [doc0, doc1] in that order (tie broken by DocID)", results)
 	}

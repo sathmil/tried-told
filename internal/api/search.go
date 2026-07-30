@@ -29,7 +29,7 @@ func SearchHandler(idx index.Index, docs []index.IndexDoc, metas []index.DocMeta
 			return
 		}
 
-		hits := bm25.Search(idx, q, params)
+		hits := bm25.Search(bm25.WrapInMemory(idx), q, params)
 		results := make([]searchResult, len(hits))
 		for i, h := range hits {
 			m := metas[h.DocID]

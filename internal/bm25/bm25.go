@@ -1,12 +1,12 @@
-// Package bm25 implements Okapi BM25 scoring and search over an
-// index.Index, per docs/design/04-bm25.md.
+// Package bm25 implements Okapi BM25 scoring and search, against either
+// the in-memory index.Index or a disk-backed diskindex.Segment - see
+// docs/design/21-bm25-segment.md.
 package bm25
 
 import (
 	"math"
 	"sort"
 
-	"triedandtold/internal/index"
 	"triedandtold/internal/tokenize"
 )
 
@@ -27,6 +27,27 @@ type Result struct {
 	Score float64
 }
 
+// Posting is the minimal (docID, freq) pair Search needs from any backend,
+// independent of what a given backend actually stores per posting (the
+// in-memory index stores Freq directly; a disk segment stores positions
+// and derives Freq as len(positions)).
+type Posting struct {
+	DocID int
+	Freq  int
+}
+
+// Index is what Search needs from an inverted index - satisfied by both
+// the in-memory index.Index (via WrapInMemory) and a disk-backed
+// diskindex.Segment (via WrapSegment), so the same scoring code runs
+// against either backend.
+type Index interface {
+	// Postings returns term's postings, or ok=false if it doesn't appear.
+	Postings(term string) (p []Posting, ok bool)
+	N() int
+	AvgDocLen() float64
+	DocLen(docID int) int
+}
+
 // idf is the smoothed inverse document frequency: always >= 0, so a term's
 // presence never actively lowers a document's score, even for very common
 // terms (relevant since we don't remove stopwords - see docs/design/02).
@@ -44,17 +65,17 @@ func termScore(freq, docLen int, avgDocLen float64, p Params) float64 {
 // Search tokenizes query, scores every document that shares at least one
 // term with it, and returns results sorted by score descending (ties broken
 // by ascending DocID, for deterministic output).
-func Search(idx index.Index, query string, p Params) []Result {
+func Search(idx Index, query string, p Params) []Result {
 	scores := make(map[int]float64)
 
 	for _, term := range tokenize.Tokenize(query) {
-		postings, ok := idx.Postings[term]
+		postingsList, ok := idx.Postings(term)
 		if !ok {
 			continue
 		}
-		weight := idf(idx.N, len(postings))
-		for _, posting := range postings {
-			scores[posting.DocID] += weight * termScore(posting.Freq, idx.DocLen[posting.DocID], idx.AvgDocLen, p)
+		weight := idf(idx.N(), len(postingsList))
+		for _, posting := range postingsList {
+			scores[posting.DocID] += weight * termScore(posting.Freq, idx.DocLen(posting.DocID), idx.AvgDocLen(), p)
 		}
 	}
 

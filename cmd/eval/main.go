@@ -33,7 +33,7 @@ func main() {
 
 	var sumPrecision, sumRR float64
 	for _, q := range queries {
-		hits := bm25.Search(idx, q.Text, bm25.DefaultParams)
+		hits := bm25.Search(bm25.WrapInMemory(idx), q.Text, bm25.DefaultParams)
 		ranked := make([]int, len(hits))
 		for i, h := range hits {
 			ranked[i] = h.DocID
