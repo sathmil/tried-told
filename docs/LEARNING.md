@@ -903,3 +903,36 @@ generation, per the original stack mandate (Go owns indexing/serving).
   works end-to-end. Wiring it into a real search request, combining
   scores with BM25 (hybrid ranking), and process supervision for a real
   deployment are separate, later pieces — written down, not just implied.
+
+## 29. Combining two rankings: Reciprocal Rank Fusion
+
+- BM25 scores and cosine-similarity scores can't just be added — BM25 is
+  unbounded and corpus-dependent, cosine similarity is bounded in
+  [-1, 1]. A weighted combination needs per-query normalization to make
+  that combination mean anything, and per-query min-max normalization is
+  fragile: one unusually high score for a single query skews that
+  query's entire scale, and the weight itself has no principled default.
+- Chosen instead: Reciprocal Rank Fusion — `internal/hybrid.Fuse` never
+  looks at a score, only at each ID's rank *position* in each ranking
+  (`score += 1/(k + rank)`, summed across rankings, `k = 60` is the
+  standard default from the original RRF paper). This sidesteps the
+  normalization problem by construction rather than tuning around it —
+  the actual reason it was picked, not just "it's a known algorithm."
+  The real cost accepted: RRF throws away magnitude, so a dramatically
+  better BM25 match only gets credit for its rank, not its margin.
+- **The test that proves the actual point of fusing two signals**:
+  `TestFuse_AgreementBeatsASingleSourceTopRank` — a passage ranked only
+  #2 in *both* the lexical and semantic rankings outranks a passage
+  ranked #1 in just one of them. That's the real justification for
+  hybrid ranking over "just use whichever signal seems better": combined,
+  weaker evidence should beat strong single-source evidence.
+- Kept as a standalone building block on purpose, mirroring
+  `bm25.FilterDeleted`'s separation of concerns: `Fuse` takes plain
+  `[][]string` passage-ID rankings, with no knowledge of `bm25.Result`,
+  `DocID`s, or `semantic.Index`. Wiring it into a real search request
+  surfaced a genuine open question rather than a detail to paper over:
+  the current demo API searches an in-memory corpus with no
+  passage-ID mapping at all, while the semantic index and disk segments
+  are keyed by stable passage ID — reconciling which backend the live
+  search API actually serves is its own decision, deliberately deferred
+  rather than smuggled into this one.
