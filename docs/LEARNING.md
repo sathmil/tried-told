@@ -754,3 +754,35 @@ entries 12-19.
   returned results by its real `Passage.ID()` and confirms it (and only
   it) disappears. Extraction → segment → search → deletion → filtering,
   proven as one path, not five isolated pieces.
+
+## 25. Lexical index upgrade, part 6: multi-segment querying (incremental indexing)
+
+- **Incremental indexing itself needed no new code** — segments are
+  already immutable and self-contained, so a new batch of passages is just
+  another `BuildSegment` call, producing a second file, no rebuild of the
+  first. The actual gap was that nothing could *query* more than one
+  segment at once. `MultiSegment` closes that, not the segment format
+  itself.
+- Global ID translation: each segment keeps a `base` offset (first global
+  ID it owns); `locate(globalID)` finds the owning segment via binary
+  search over the (ascending) base offsets, same doc-base scheme Lucene
+  uses for its composite reader.
+- **A design simplification worth noticing, not planning for in advance**:
+  `Segment` and `MultiSegment` ended up with the exact same method set, so
+  one `diskindex.Queryable` interface let the existing `WrapSegment`
+  handle both — no separate `WrapMultiSegment` needed. `bm25.FilterDeleted`
+  got the same treatment: generalized from the concrete `*Segment` type to
+  a minimal `PassageIDResolver` interface, so tombstone filtering works
+  identically across one segment or many.
+- Test that actually proves the point, not just "it compiles":
+  `TestSearch_FindsResultsAcrossIncrementallyAddedSegments` builds two
+  segments at two separate times (no rebuild of the first) and searches
+  them together as one call. The deletion test specifically deletes a
+  passage from the *second* segment, to prove ID translation is correct at
+  a non-zero offset, not just the trivial first-segment case.
+- Deliberately still deferred: segment **merging** (combining segments'
+  raw postings into one, physically dropping deleted passages) — a
+  genuinely harder, separate problem (needs a postings-level merge
+  algorithm, not just query-time combination). `MultiSegment` makes an
+  unbounded number of segments queryable; it doesn't keep that number
+  bounded over time. Next piece, not this one.

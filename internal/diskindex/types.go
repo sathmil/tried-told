@@ -7,6 +7,19 @@ package diskindex
 // magic identifies this file format and its version.
 var magic = [4]byte{'T', 'T', 'S', '1'}
 
+// Queryable is what a single Segment and a MultiSegment (combining several
+// segments into one unified ID space) both implement - anything callers
+// (like internal/bm25's adapters) need to search, independent of how many
+// underlying segment files are actually involved.
+type Queryable interface {
+	N() int
+	AvgDocLen() float64
+	DocLen(docID int) int
+	PassageID(docID int) string
+	TermPostings(term string) ([]Posting, bool)
+	PhraseSearch(phrase string) []int
+}
+
 // header is the segment file's fixed-size preamble. encoding/binary
 // serializes struct fields in declared order with no padding (verified via
 // go doc, not assumed), so this can be written/read directly with

@@ -31,16 +31,19 @@ func (w inMemoryIndex) N() int               { return w.idx.N }
 func (w inMemoryIndex) AvgDocLen() float64   { return w.idx.AvgDocLen }
 func (w inMemoryIndex) DocLen(docID int) int { return w.idx.DocLen[docID] }
 
-// WrapSegment adapts a disk-backed diskindex.Segment to the Index
-// interface Search needs. A segment's postings store word positions, not
-// a frequency field directly - Freq here is derived as len(Positions),
-// same as everywhere else positions are used instead of a separate count.
-func WrapSegment(seg *diskindex.Segment) Index {
+// WrapSegment adapts a disk-backed diskindex.Queryable - a single Segment
+// or a MultiSegment combining several - to the Index interface Search
+// needs. Both satisfy Queryable with the same method set, so this one
+// adapter handles either without needing a separate wrapper for each.
+// A segment's postings store word positions, not a frequency field
+// directly - Freq here is derived as len(Positions), same as everywhere
+// else positions are used instead of a separate count.
+func WrapSegment(seg diskindex.Queryable) Index {
 	return segmentIndex{seg: seg}
 }
 
 type segmentIndex struct {
-	seg *diskindex.Segment
+	seg diskindex.Queryable
 }
 
 func (w segmentIndex) Postings(term string) ([]Posting, bool) {
