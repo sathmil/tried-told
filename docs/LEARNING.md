@@ -622,3 +622,53 @@ entries 12-19.
   gap of 3) compressed to **12% of naive fixed-width size** — logged as an
   actual number in the test output, not cited from the algorithm's
   reputation.
+
+## 21. Lexical index upgrade, part 2: immutable segment file format
+
+- One self-contained binary file per segment (`internal/diskindex`): fixed
+  header, delta+varint postings with positions, term dictionary, doc
+  lengths, and an ID-mapping section, closed out with a trailing CRC32
+  checksum.
+- **Local sequential IDs inside postings, not `Passage.ID()` directly** —
+  a 64-character hash has no numeric structure, so using it as a posting's
+  DocID would have destroyed the delta-encoding compression built in entry
+  20. Postings use compact local IDs (0..N-1); a separate ID-mapping
+  section is the join back to the real `Passage.ID()` that deletion
+  tombstones and attribution actually key on.
+- **Doc lengths and the ID map are fixed-width, not delta-compressed** —
+  they need random access by local ID (BM25 needs a specific doc's
+  length, not a sequential scan), which is exactly the access pattern
+  delta+varint is wrong for. Compression is for sequentially-scanned
+  sorted data; this is the opposite pattern, so it gets the opposite
+  encoding.
+- Needed one real addition to `internal/postings`: `DecodeN` (decode
+  exactly N values from the middle of a larger buffer, returning bytes
+  consumed) — `DecodeDeltas` alone only supported "decode until the
+  buffer's empty," which doesn't work when a posting's DocID gaps are
+  immediately followed by more encoded data (each doc's position gaps) in
+  the same block.
+- **Corrected an estimate with a real measurement rather than leaving it
+  looking more precise than it was.** The original ~16MB size estimate
+  (entry 20) only covered postings, missing the ID-mapping section
+  entirely. Building a real segment from the 30-doc synthetic corpus and
+  measuring it directly surfaced the gap: 64 bytes/passage for ID mapping
+  adds ~6.4MB at 100,000 passages. Same real run also confirmed the
+  sizing exercise's core assumption: measured average was 19.67
+  tokens/passage against an assumed 20 — close enough to trust the
+  broader estimate's reasoning, not just its original arithmetic.
+- Checksum verification happens **before** anything else is trusted or
+  even parsed — a corrupted file is caught immediately at open time, not
+  discovered later as a confusing decode failure deep in a query. A
+  decode error *after* the checksum passes panics rather than returning
+  an error, since that can only mean a bug in the code itself (the
+  checksum already proved the bytes are exactly what was written), not a
+  normal condition to handle gracefully.
+- Test worth naming: `TestBuildSegment_RealExtractedPassages` runs the
+  real extractor against the real fixture and round-trips the actual
+  resulting passages through a real segment file — the same "prove it
+  against real data, not just crafted examples" pattern used throughout
+  this project.
+- Deliberately not built yet: multi-segment merging, incremental indexing,
+  and tombstone-aware querying (checking `DeletionLog` during search).
+  This pass was "build and read one correct, immutable segment" — the
+  same small-provable-units scoping as everything else this session.

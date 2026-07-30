@@ -5,6 +5,43 @@ import (
 	"testing"
 )
 
+func TestDecodeN_ReadsExactlyCountValuesFromALargerBuffer(t *testing.T) {
+	first := EncodeDeltas([]int{5, 8, 9})   // 3 values
+	second := EncodeDeltas([]int{100, 200}) // a second, independent sequence appended right after
+
+	combined := append(append([]byte{}, first...), second...)
+
+	gotFirst, consumed, err := DecodeN(combined, 3)
+	if err != nil {
+		t.Fatalf("DecodeN returned error: %v", err)
+	}
+	if !slices.Equal(gotFirst, []int{5, 8, 9}) {
+		t.Errorf("DecodeN got %v, want [5 8 9]", gotFirst)
+	}
+	if consumed != len(first) {
+		t.Errorf("consumed = %d, want %d (exactly the first sequence's byte length)", consumed, len(first))
+	}
+
+	// The whole point: decoding continues correctly from where the first
+	// call left off, proving `consumed` is trustworthy for sequential
+	// parsing of a larger buffer.
+	gotSecond, err := DecodeDeltas(combined[consumed:])
+	if err != nil {
+		t.Fatalf("DecodeDeltas on the remainder returned error: %v", err)
+	}
+	if !slices.Equal(gotSecond, []int{100, 200}) {
+		t.Errorf("second sequence = %v, want [100 200]", gotSecond)
+	}
+}
+
+func TestDecodeN_TruncatedInputReturnsError(t *testing.T) {
+	encoded := EncodeDeltas([]int{5, 8, 9})
+	// Ask for more values than are actually present.
+	if _, _, err := DecodeN(encoded, 5); err == nil {
+		t.Error("DecodeN with count exceeding available data returned no error")
+	}
+}
+
 func TestEncodeDecodeDeltas_RoundTrip(t *testing.T) {
 	cases := [][]int{
 		{7, 8, 20, 21, 22, 23}, // the hand-worked example

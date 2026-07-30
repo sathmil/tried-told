@@ -40,20 +40,43 @@ func EncodeDeltas(sorted []int) []byte {
 }
 
 // DecodeDeltas reverses EncodeDeltas, reconstructing the original strictly
-// increasing sequence. Returns an error (never panics or silently produces
-// garbage) if data is truncated or otherwise not valid varint-encoded
-// deltas - e.g. from disk corruption.
+// increasing sequence from a buffer containing nothing else. Returns an
+// error (never panics or silently produces garbage) if data is truncated
+// or otherwise not valid varint-encoded deltas - e.g. from disk
+// corruption.
 func DecodeDeltas(data []byte) ([]int, error) {
+	values, _, err := decodeDeltasN(data, -1)
+	return values, err
+}
+
+// DecodeN decodes exactly count delta-encoded values from the start of
+// data, returning the reconstructed values and the number of bytes
+// consumed. For reading a sequence embedded inside a larger buffer
+// alongside other encoded data (e.g. a posting's DocID gaps immediately
+// followed by each document's position gaps) - unlike DecodeDeltas, it
+// doesn't require the sequence to be the only thing in data.
+func DecodeN(data []byte, count int) (values []int, bytesConsumed int, err error) {
+	return decodeDeltasN(data, count)
+}
+
+// decodeDeltasN is the shared decode loop: if count < 0, decode until data
+// is exhausted (DecodeDeltas' behavior); otherwise decode exactly count
+// values (DecodeN's behavior).
+func decodeDeltasN(data []byte, count int) ([]int, int, error) {
 	var out []int
 	prev := 0
-	for len(data) > 0 {
-		delta, n := binary.Uvarint(data)
+	pos := 0
+	for count < 0 || len(out) < count {
+		if count < 0 && pos >= len(data) {
+			break
+		}
+		delta, n := binary.Uvarint(data[pos:])
 		if n <= 0 {
-			return nil, fmt.Errorf("postings: corrupt or truncated varint, %d bytes remaining", len(data))
+			return nil, 0, fmt.Errorf("postings: corrupt or truncated varint at byte %d", pos)
 		}
 		prev += int(delta)
 		out = append(out, prev)
-		data = data[n:]
+		pos += n
 	}
-	return out, nil
+	return out, pos, nil
 }
