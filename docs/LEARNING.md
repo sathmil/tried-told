@@ -699,3 +699,35 @@ entries 12-19.
 - Still open: passage tombstones aren't checked during search yet — a
   deleted passage still returns if its segment still contains it. Next
   natural piece, not bundled into this one.
+
+## 23. Lexical index upgrade, part 4: phrase search
+
+- `Segment.PhraseSearch`: fetch postings per word, intersect document sets
+  (a candidate must contain every word), then check each candidate for a
+  starting position where the words sit at consecutive offsets in order.
+- **The real reason BM25 never needed positions, stated precisely**: it's
+  a bag-of-words model — the formula only depends on *how many times* a
+  term occurs, never *where*. Two documents with identical term-frequency
+  profiles score identically regardless of word order. Phrase search asks
+  a genuinely different question (exact adjacency and order), which is
+  why it needs information BM25 structurally can't use.
+- Two real optimizations, not just correctness: candidate generation
+  starts from the *rarest* word (fewest postings), same principle real
+  query planners use for boolean AND; the position-containment check uses
+  binary search, valid specifically because positions within one posting
+  are already sorted (an invariant maintained since design doc 01).
+- **Honest capability gap, not papered over**: built as a method on
+  `diskindex.Segment` only, not folded into the shared `bm25.Index`
+  interface — the in-memory Milestone 1 index never stored positions at
+  all (by design), so there's nothing for it to operate on. Rather than
+  faking a no-op implementation for the backend that can't support it, the
+  gap is just documented as real.
+- **The test that actually matters**: a document containing "cast" and
+  "white" — present, but not adjacent, and in reverse order — must NOT
+  match the phrase "white cast", while a document with them genuinely
+  consecutive must. Without that specific test, a buggy implementation
+  that silently degraded to a plain AND query (ignoring positions
+  entirely) would still pass every other test in the file.
+- Deliberately not built yet: snippet generation (the other capability
+  positions unlock) — wasn't asked for in this pass, so it isn't bundled
+  in.
