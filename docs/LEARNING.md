@@ -731,3 +731,26 @@ entries 12-19.
 - Deliberately not built yet: snippet generation (the other capability
   positions unlock) — wasn't asked for in this pass, so it isn't bundled
   in.
+
+## 24. Lexical index upgrade, part 5: tombstone-aware querying
+
+- `bm25.FilterDeleted` is a **post-processing step**, not a parameter to
+  `Search` — filtering needs to resolve a result's local DocID back to a
+  stable `Passage.ID()`, and that mapping only exists for segment-backed
+  search. The in-memory backend has no stable passage identity at all (its
+  DocIDs are ephemeral, assigned fresh per build), so baking this into
+  `Search` would force every in-memory caller to pass something
+  meaningless to them. Keeping scoring and deletion-filtering separate is
+  what keeps `Search` genuinely backend-agnostic.
+- `Deleter` is a minimal interface (`IsDeleted(passageID string) bool`),
+  not a direct dependency on `crawlstate` — `*crawlstate.DeletionLog`
+  already satisfies it with zero adapter code, the same "small interface,
+  free satisfaction" pattern as `fetch.Deduper` and `*dedup.Registry`.
+- `FilterDeleted` preserves `Search`'s ranked order — it removes entries,
+  it never re-sorts the remainder.
+- Test worth naming: `TestFilterDeleted_RealExtractedPassages` runs the
+  entire real pipeline together — real extractor, real segment, real
+  WAL-backed deletion log, real search, then deletes one of the actual
+  returned results by its real `Passage.ID()` and confirms it (and only
+  it) disappears. Extraction → segment → search → deletion → filtering,
+  proven as one path, not five isolated pieces.
