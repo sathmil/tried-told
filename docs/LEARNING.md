@@ -869,3 +869,37 @@ generation, per the original stack mandate (Go owns indexing/serving).
   pure-Go query-time path) — not decided yet, since this pass only needed
   to prove the index itself works, which the committed real query fixture
   did without requiring that architectural question to be settled first.
+
+## 28. Closing the loop: a query-embedding microservice
+
+- Resolved the open question from entry 27: a live query gets embedded by
+  `python/embed_service.py`, a persistent process (model loaded once, not
+  per-request) exposing one `POST /embed` endpoint. Chosen over exporting
+  to ONNX because it reuses the exact code path that generated passage
+  embeddings — no export step, no reimplementing BGE's tokenizer in Go —
+  and correctness mattered more than shaving the latency of a loopback
+  HTTP call. This is a real distinguishing tradeoff (fidelity vs. latency),
+  not a restatement of "make it work."
+- Transport is plain HTTP+JSON, not gRPC — gRPC's efficiency advantage is
+  for large or high-throughput payloads, and this is one short string in,
+  384 floats out. Picking the simpler tool because the fancier tool's
+  benefit doesn't apply here is itself a decision worth being able to
+  defend, not a default.
+- The BGE query-instruction prefix is applied *inside* the service, not
+  by callers — the asymmetric-encoding convention (queries get a prefix,
+  passages don't) is a model-specific detail, so it stays encapsulated
+  next to the model instead of leaking into every caller.
+- **Verified with a real live round trip, twice, not just a mocked
+  contract.** The Go unit tests use `httptest` and prove the client
+  parses whatever shape a fake server sends — that's necessary but not
+  sufficient, since it only checks the Go code against its own
+  assumptions. So the real service was started for real and hit two
+  ways: directly via `curl` (confirmed 384 dims, L2 norm ≈ 1.0, and that
+  empty/missing `text` returns 400 instead of crashing), and via the real
+  `embedclient.Client` from a throwaway program (confirmed the actual Go
+  client and the actual Python service agree on the wire format — not
+  just that each side satisfies its own test in isolation).
+- Scope held deliberately narrow: this proves the embedding call itself
+  works end-to-end. Wiring it into a real search request, combining
+  scores with BM25 (hybrid ranking), and process supervision for a real
+  deployment are separate, later pieces — written down, not just implied.
