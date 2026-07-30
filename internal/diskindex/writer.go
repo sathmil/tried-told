@@ -25,18 +25,14 @@ import (
 // real Passage.ID() is stored in the ID-mapping section, so deletion
 // tombstones and attribution lookups still work against segment contents.
 func BuildSegment(passages []extract.Passage, path string) error {
-	n := len(passages)
-
-	docLens := make([]int, n)
-	passageIDs := make([]string, n)
+	docLens := make([]int, len(passages))
+	passageIDs := make([]string, len(passages))
 	termDocPositions := make(map[string]map[int][]int)
-	totalLen := 0
 
 	for localID, p := range passages {
 		passageIDs[localID] = p.ID()
 		tokens := tokenize.Tokenize(p.Text)
 		docLens[localID] = len(tokens)
-		totalLen += len(tokens)
 
 		for pos, tok := range tokens {
 			docs := termDocPositions[tok]
@@ -48,16 +44,32 @@ func BuildSegment(passages []extract.Passage, path string) error {
 		}
 	}
 
-	avgDocLen := 0.0
-	if n > 0 {
-		avgDocLen = float64(totalLen) / float64(n)
-	}
-
 	terms := make([]string, 0, len(termDocPositions))
 	for t := range termDocPositions {
 		terms = append(terms, t)
 	}
 	sort.Strings(terms)
+
+	return writeSegment(terms, termDocPositions, docLens, passageIDs, path)
+}
+
+// writeSegment encodes and writes a segment file from already-assembled
+// per-term postings, doc lengths, and ID mapping. Shared by BuildSegment
+// (which assembles these by tokenizing passages from scratch) and
+// MergeSegments (which assembles them by decoding and recombining
+// existing segments - segments don't store passage text, so merging
+// can't re-tokenize; it has to work at this same intermediate
+// representation instead). See docs/design/31-segment-merging.md.
+func writeSegment(terms []string, termDocPositions map[string]map[int][]int, docLens []int, passageIDs []string, path string) error {
+	n := len(docLens)
+	totalLen := 0
+	for _, l := range docLens {
+		totalLen += l
+	}
+	avgDocLen := 0.0
+	if n > 0 {
+		avgDocLen = float64(totalLen) / float64(n)
+	}
 
 	postingsBuf, dict := encodePostings(terms, termDocPositions)
 	dictBuf := encodeDictionary(terms, dict)

@@ -87,6 +87,17 @@ func (s *Segment) DocLen(localID int) int { return s.docLens[localID] }
 // key back to deletion tombstones and attribution lookups.
 func (s *Segment) PassageID(localID int) string { return s.passageIDs[localID] }
 
+// Terms returns every term in this segment's dictionary, in no
+// particular order. Used by MergeSegments to build the union of terms
+// across multiple segments before recombining their postings.
+func (s *Segment) Terms() []string {
+	terms := make([]string, 0, len(s.dict))
+	for t := range s.dict {
+		terms = append(terms, t)
+	}
+	return terms
+}
+
 // DocFreq returns the number of documents term appears in within this
 // segment, or 0 if it doesn't appear at all.
 func (s *Segment) DocFreq(term string) int {

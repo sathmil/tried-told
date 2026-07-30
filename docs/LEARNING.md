@@ -1019,3 +1019,53 @@ generation, per the original stack mandate (Go owns indexing/serving).
   data with no `crawlstate.DeletionLog` at all. Both capabilities are
   proven and ready at the package level, waiting on a real crawled
   corpus with real deletions to actually use them.
+
+## 32. Segment merging: what it's actually for
+
+- The deletion log (entry from design doc 18) only filters tombstoned
+  passages out of *query results* — their postings never leave disk,
+  so the index only ever grows. Merging is the mechanism that actually
+  reclaims that space: because combining segments already requires
+  decoding and re-encoding every posting, it's the natural point to also
+  drop anything tombstoned. That's the real reason production search
+  engines merge periodically, not primarily a query-latency
+  optimization from having fewer files — recognizing that distinction
+  was the actual insight, not a restatement of "merging is good."
+- **Segments store no passage text** (only postings, doc lengths, and
+  an ID mapping — a fact confirmed while designing this, not assumed),
+  so merging can't just re-tokenize like `BuildSegment` does; it has to
+  decode and recombine existing postings directly. Pulled `BuildSegment`'s
+  file-writing tail out into a shared `writeSegment` helper operating on
+  the same intermediate form (`terms`, `termDocPositions`, `docLens`,
+  `passageIDs`) that either tokenizing or decoding can produce — a real
+  simplification, not just an add, since it removed a second, parallel
+  file-writing implementation that would otherwise have to stay in sync
+  with the first by hand.
+- **A renumbering trick avoids needing an actual k-way merge**: each
+  segment's surviving passages get fresh global IDs assigned in segment
+  order, so segment 0's whole ID range sits entirely below segment 1's.
+  That means recombining a term's postings across segments doesn't need
+  an interleaved merge step at all — the existing per-term sort in
+  `encodePostings` already produces the right order once IDs are
+  assigned this way. Noticing that an existing piece of code already
+  solves what looked like a new problem is worth as much as writing new
+  code.
+- **The test that actually justifies the design**:
+  `TestMergeSegments_DropsTombstonedPassages` — a term appearing only in
+  a deleted passage's text must be completely absent from the merged
+  dictionary afterward (`DocFreq` 0, gone from `Terms()`), not merely
+  unreachable through the deletion log. That's the difference between
+  "hidden" and "reclaimed," and it's the whole point of doing this at
+  merge time instead of leaving tombstones as the only enforcement.
+  `TestMergeSegments_PreservesPositionsForPhraseSearch` confirms
+  positions — not just doc-level frequencies — survive renumbering
+  intact. `TestMergeSegments_ThreeWayMergeSumsAllSegments` confirms the
+  design takes any number of segments in one pass, a real choice over a
+  simpler pairwise-only merge that would need repeated passes to combine
+  more than two.
+- Left open, on purpose: when/how merging actually gets triggered (no
+  policy yet — segment-count threshold, size-tiered merging, a
+  scheduled job), and swapping a live `MultiSegment`'s constituent
+  segments atomically while queries are in flight. This proves the
+  merge mechanism is correct; wiring it into an always-on, continuously
+  updated index is separate work.
