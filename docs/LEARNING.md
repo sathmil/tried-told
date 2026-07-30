@@ -978,3 +978,44 @@ generation, per the original stack mandate (Go owns indexing/serving).
   already has `FilterDeleted`; semantic doesn't yet), and doing any of
   this against the real crawled corpus rather than synthetic data, still
   gated on real-source vetting.
+
+## 31. Tombstone-awareness for semantic search: a harder problem than BM25's
+
+- BM25's tombstone filtering (`bm25.FilterDeleted`) was easy because
+  `Search` returns *every* matching document — pruning deleted ones
+  afterward never changes what recall means, since nothing was left out
+  to begin with. Semantic search's `Index.Search(query, k)` returns an
+  *approximate top-k* — filtering that after the fact can silently
+  return fewer than k usable results, even when plenty of live, relevant
+  passages exist further out in the graph that Search never had reason
+  to surface. Recognizing that this is a genuinely different problem,
+  not the same one restated, was the actual insight here.
+- Three ways to close that gap: filter the plain top-k (simplest, but
+  under-returns whenever tombstones land in it); over-fetch a wider
+  candidate set before filtering (narrows the gap, doesn't touch
+  Search or the graph); or delete tombstoned nodes from the HNSW graph
+  directly (closes the gap completely, but reopens the `coder/hnsw`
+  deletion bug from entry 27 — for routine, ongoing use this time, not
+  a one-off replace — plus it needs a real sync mechanism to the
+  deletion log over time). Chose over-fetching specifically to avoid
+  exercising a known-buggy mutation path more than necessary — a
+  simplicity argument grounded in a concrete prior failure, not just a
+  preference.
+- `overFetchMultiplier = 3` is a heuristic starting point, explicitly
+  *not* claimed as literature-backed the way BM25's k1/b or RRF's k=60
+  are — worth revisiting against real deletion rates once there's a
+  real corpus with real churn.
+- **The two tests that prove both the fix and its honest limit**:
+  `TestSearchLive_OverFetchCompensatesForDeletedTopResults` — the two
+  nearest neighbors to a query are both tombstoned, and `SearchLive`
+  still returns k=2 results by reaching past them, which a naive
+  `Search` + filter could not do. `TestSearchLive_ReturnsFewerThanKWhenNotEnoughLiveResultsExist`
+  — when even the over-fetched set is mostly deleted, it returns fewer
+  than k rather than padding results to force the count. Over-fetching
+  narrows the under-return gap; it does not close it, and the second
+  test is what keeps that claim honest instead of implied.
+- Not wired into the live search API, for the same reason BM25's
+  tombstone filtering never was: the demo corpus is static synthetic
+  data with no `crawlstate.DeletionLog` at all. Both capabilities are
+  proven and ready at the package level, waiting on a real crawled
+  corpus with real deletions to actually use them.
