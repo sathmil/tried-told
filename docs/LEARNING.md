@@ -830,3 +830,42 @@ generation, per the original stack mandate (Go owns indexing/serving).
 - Deliberately not built yet: the actual HNSW graph (build + query) from
   these vectors. This pass proves generation + interchange work
   end-to-end; wiring `github.com/coder/hnsw` is the next, separate piece.
+
+## 27. Semantic indexing, part 2: HNSW graph, and two real library bugs
+
+- `semantic.Index` wraps `coder/hnsw`'s `SavedGraph[string]`, keyed
+  directly by `Passage.ID()` — no local-ID indirection needed here, unlike
+  the lexical index's postings, since HNSW nodes aren't delta-compressed
+  and there's no compression benefit to lose by using the string directly.
+- **The library's own documentation was wrong, and only testing caught
+  it.** It claims `Add` replaces an existing key automatically. Verified
+  directly: `Add` actually panics (`"node not added"`) on a duplicate key,
+  with both a 20-node and a 1-node graph (ruling out a small-graph-only
+  explanation before concluding it was a general bug). The documented
+  workaround — delete then re-add — has its *own* bug: deleting the only
+  remaining node leaves the graph in a broken state where the next `Add`
+  segfaults. Isolated by testing the "delete one of several" case
+  separately from "delete the only one" case, rather than assuming the
+  first failure explained everything.
+- **Fixed with a targeted, explained workaround, not a silent one**:
+  check for an existing key first; delete-then-add when other nodes
+  remain (works fine); discard and recreate the graph fresh when it would
+  become empty (verified to sidestep the corruption). Documented as an
+  upstream library limitation in the code itself, not hidden — so a future
+  library fix makes the workaround merely unnecessary, not silently wrong.
+- **The proof that actually matters**: real BGE embeddings for three
+  deliberately unrelated passages (sunscreen, pizza, car maintenance) plus
+  a real query embedding (with the BGE instruction prefix applied, unlike
+  passage embeddings) — the sunscreen passage ranks first for a
+  sunscreen-related query. Mechanical correctness (search returns *a*
+  result) isn't the same claim as semantic correctness (search returns
+  the *right* result), and only the second one is the point of this
+  entire component.
+- Left genuinely open, not glossed over: how a live user query gets
+  embedded at request time. The stack mandate says Go owns the query
+  service, but embedding a query needs the same PyTorch model that
+  generated passage embeddings. Two real options for later (a small
+  persistent Python embedding microservice vs. exporting to ONNX for a
+  pure-Go query-time path) — not decided yet, since this pass only needed
+  to prove the index itself works, which the committed real query fixture
+  did without requiring that architectural question to be settled first.
