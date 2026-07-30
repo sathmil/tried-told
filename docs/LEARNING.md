@@ -936,3 +936,45 @@ generation, per the original stack mandate (Go owns indexing/serving).
   are keyed by stable passage ID — reconciling which backend the live
   search API actually serves is its own decision, deliberately deferred
   rather than smuggled into this one.
+
+## 30. Wiring hybrid ranking into the search API
+
+- Resolved the backend question deferred in entry 29: the demo corpus
+  never had a stable `Passage.ID()` at all — `corpus.LoadJSONL` only ever
+  fed the in-memory `index.Index`. The choice was between bolting a
+  parallel ID scheme onto that in-memory path, or switching the live
+  search API to the disk-backed segment format, which already solved
+  local-ID ↔ `Passage.ID()` mapping for exactly this reason. Chose the
+  segment — reusing a mapping already built for this purpose beats
+  inventing a second one that duplicates it. Added `corpus.ToPassages` to
+  do the (trivial, one-field-renamed) conversion.
+- Generated real embeddings for the actual 30-passage synthetic corpus
+  via the existing offline script and committed them
+  (`data/embeddings/synthetic.bin` + the JSONL that produced it, so it's
+  regenerable) — this is the first time semantic search runs over real
+  project content instead of a 3-passage test fixture.
+- **Semantic search is an enrichment, not a hard dependency, at two
+  separate points**: the server itself still starts and serves BM25-only
+  if the embeddings file or graph build fails at startup; and
+  `SearchHandler` falls back to BM25-only *per request* if the live
+  `embed_service.py` call errors, rather than failing the request. Proven
+  by `TestSearchHandler_FallsBackToBM25OnlyWhenEmbedderFails` — a 200
+  with BM25-only results even when the fake embedder always errors.
+- `searchResult.Score` (a raw BM25 number) had to go — once RRF can
+  produce the ranking, there's no single score left that means the same
+  thing in both modes, and showing a stale BM25 score on a fused result
+  would misrepresent how it was actually ranked. Replaced with `Rank`,
+  the position actually used to order the response, which stays honest
+  under either ranking mode.
+- **The test that proves fusion, not just wiring**:
+  `TestSearchHandler_FusesLexicalAndSemanticResults` — a query matching
+  one doc lexically only, with a faked embedding nearest a *different*
+  doc, returns both. Beyond that, the real server was run end-to-end
+  against the real `embed_service.py` and the real corpus embeddings: a
+  query deliberately worded without the corpus's exact phrasing still
+  surfaced the right moisturizer passages by blending both signals —
+  the actual case this whole component exists to handle.
+- Left open: tombstone-awareness for the semantic side of a result (BM25
+  already has `FilterDeleted`; semantic doesn't yet), and doing any of
+  this against the real crawled corpus rather than synthetic data, still
+  gated on real-source vetting.
