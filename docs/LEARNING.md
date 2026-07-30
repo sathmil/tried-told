@@ -578,3 +578,47 @@ collection. Kept as a background item rather than a blocker.
 (SimHash), language detection, structured metadata, source attribution,
 and now deletion/re-indexing — all built, tested, and documented across
 entries 12-19.
+
+## 20. Lexical index upgrade, part 1: sizing + delta/varint compression
+
+- **Sizing exercise before any code**, per the project's own rule: for a
+  100,000-passage target (the "deployed portfolio version" checkpoint),
+  Heaps' Law (`V ≈ k·N^b`) gave a vocabulary estimate of ~6,600 terms —
+  used a lower exponent (0.4) deliberately, reasoning that a narrow-domain
+  corpus (skincare vocabulary repeats constantly) grows its vocabulary
+  more slowly than a general-topic one would. The full estimate landed at
+  ~16 MB raw for the whole postings structure — genuinely small, which
+  reframes why compression matters here: it's a real technique worth
+  learning and building, not a fix for a space crisis this project
+  actually has at this scale.
+- **Custom binary format, not SQLite/BoltDB** — sharpened an
+  under-justified first answer ("not sure why") into the actual reason:
+  unlike robots.txt/HTML/language-ID (peripheral tooling, correctly
+  delegated to libraries), the posting-list format *is* an explicit,
+  named learning objective of this project ("inverted index... built from
+  scratch"). A generic embedded store would quietly delegate away exactly
+  the thing this milestone exists to teach.
+- **Delta + varint compression**, using `encoding/binary`'s standard
+  varint rather than hand-rolling byte-packing (generic tooling) while
+  building the delta *logic* ourselves (the actual technique). Applies at
+  two levels with the identical mechanism: DocID gaps between postings,
+  and position gaps within one posting's position list.
+- **A second payoff from an old decision**: postings were sorted by DocID
+  back in design doc 01, originally for merge-join AND-query performance.
+  Delta encoding only works because of that same sortedness — an unsorted
+  list would lose nearly all the compression benefit. The same design
+  choice is now paying rent twice.
+- **Real correctness guard, not just an encoding**: casting a negative
+  `int` to `uint64` silently wraps to a huge garbage value rather than
+  failing — the same invisible-corruption category as the earlier `%2F`
+  URL-normalization bug. `EncodeDeltas` panics on non-increasing input
+  rather than trusting the caller.
+- **Integrity checks built in, not deferred**: `DecodeDeltas` on a
+  truncated/corrupt varint returns an error, never panics or silently
+  produces wrong data — the project's "integrity checks and corruption
+  tests" requirement made concrete immediately, with a test that feeds it
+  a deliberately truncated byte.
+- Measured, not assumed: a realistic dense posting list (1,000 DocIDs,
+  gap of 3) compressed to **12% of naive fixed-width size** — logged as an
+  actual number in the test output, not cited from the algorithm's
+  reputation.
