@@ -83,3 +83,43 @@ func TestTokenizeWithOffsets_MultiByteRuneOffsetsAreByteNotRuneIndexed(t *testin
 		t.Errorf("tokens[1].Start = %d, want 6 (byte offset, not rune offset)", tokens[1].Start)
 	}
 }
+
+// TestTokenize_FoldsDecorativeUnicodeVariantsToPlainASCII is the real
+// proof: a real blog post styled some words in Unicode "Mathematical
+// Bold" - different codepoints from plain ASCII letters, not just a
+// font effect (docs/design/33-real-crawl.md flagged this as a gap; this
+// closes it). Without NFKC normalization, "𝐓𝐫𝐮𝐟𝐟𝐥𝐞" and "Truffle"
+// tokenize to two different, unrelated terms.
+func TestTokenize_FoldsDecorativeUnicodeVariantsToPlainASCII(t *testing.T) {
+	styled := Tokenize("𝐓𝐫𝐮𝐟𝐟𝐥𝐞 𝐄𝐱𝐭𝐫𝐚𝐜𝐭")
+	plain := Tokenize("Truffle Extract")
+
+	if !slices.Equal(styled, plain) {
+		t.Errorf("Tokenize(styled) = %v, Tokenize(plain) = %v, want them equal", styled, plain)
+	}
+}
+
+// TestTokenizeWithOffsets_NormalizationDoesNotAlterOriginalTextOffsets
+// proves the actual design choice from docs/design/34-unicode-normalization.md:
+// normalizing Token.Text must never change what Start/End point at, or a
+// snippet built from them would silently rewrite the source's original
+// styling into plain ASCII instead of showing what was actually written.
+func TestTokenizeWithOffsets_NormalizationDoesNotAlterOriginalTextOffsets(t *testing.T) {
+	text := "the 𝐓𝐫𝐮𝐟𝐟𝐥𝐞 extract"
+	tokens := TokenizeWithOffsets(text)
+
+	var styledToken *Token
+	for i := range tokens {
+		if tokens[i].Text == "truffle" {
+			styledToken = &tokens[i]
+		}
+	}
+	if styledToken == nil {
+		t.Fatalf("no token normalized to %q in %v", "truffle", tokens)
+	}
+
+	original := text[styledToken.Start:styledToken.End]
+	if original != "𝐓𝐫𝐮𝐟𝐟𝐥𝐞" {
+		t.Errorf("text[%d:%d] = %q, want the original styled substring %q unchanged - offsets must never point at normalized text", styledToken.Start, styledToken.End, original, "𝐓𝐫𝐮𝐟𝐟𝐥𝐞")
+	}
+}

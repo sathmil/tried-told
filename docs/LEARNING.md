@@ -1183,3 +1183,40 @@ generation, per the original stack mandate (Go owns indexing/serving).
   real fetches, real robots.txt checks, real politeness delays, 82 real
   passages built into a real segment and confirmed searchable by real
   BM25 queries and real semantic search.
+
+## 35. Unicode normalization: closing the decorative-text gap
+
+- `unicode.IsLetter` already treated Mathematical Bold characters as
+  letters — `Tokenize` was including them in tokens all along. The
+  actual gap was narrower and easy to miss: they're genuinely different
+  Unicode codepoints from plain ASCII letters (U+1D413 vs. U+0054), not
+  a font effect, and `unicode.ToLower` only folds case pairs, not
+  compatibility variants. A real crawled post used this styling for
+  emphasis — a plain-text query for "truffle" would never match content
+  a human reader sees as saying exactly that. Recognizing this as a
+  *silent recall failure*, not a crash or an error, is what made it easy
+  to miss until real content forced the question.
+- NFKC (compatibility normalization), not NFC — Unicode draws a real
+  line between canonical equivalence (composed vs. decomposed accented
+  letters, which NFC/NFD handle) and compatibility equivalence
+  (Mathematical Bold, full-width forms, ligatures — a different
+  category, which only NFKC/NFKD fold). Picking the wrong one wouldn't
+  have fixed anything; verified NFKC round-trips already-well-formed
+  text like "café" unchanged before relying on it.
+- **The real design decision was where to normalize, not whether**:
+  normalizing the whole input text upfront is simpler, but NFKC can
+  change byte length, which would shift every downstream offset —
+  breaking the exact guarantee `TokenizeWithOffsets` was built for in
+  entry 32 (offsets point at the *original* text, so a snippet shows
+  what was actually written). Normalizing only `Token.Text` at the point
+  each token is flushed keeps `Start`/`End` pointed at the original
+  bytes — the same "match on one representation, display another"
+  pattern already used for the BGE query prefix and RRF's rank vs.
+  score, applied again because the same shape of problem showed up
+  again.
+- **Closed the loop against the exact real content that surfaced the
+  gap**, not a synthetic stand-in: rebuilt `data/real/real.seg` (a
+  reproducible build artifact) with the fixed tokenizer and re-ran a
+  real BM25 query for "truffle" against it live — 0 hits before, 1 hit
+  after. `TestTokenizeWithOffsets_NormalizationDoesNotAlterOriginalTextOffsets`
+  independently proves the offset guarantee held throughout.

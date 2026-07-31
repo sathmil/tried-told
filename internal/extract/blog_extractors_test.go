@@ -2,8 +2,11 @@ package extract
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
+
+	"triedandtold/internal/tokenize"
 )
 
 // TestWordPressBlogExtractor_ExtractsRealReviewContent proves extraction
@@ -27,12 +30,14 @@ func TestWordPressBlogExtractor_ExtractsRealReviewContent(t *testing.T) {
 		t.Fatal("got 0 passages, want at least 1 from a real review page")
 	}
 
-	// Deliberately plain-ASCII terms only: this post also uses decorative
+	// Deliberately plain-ASCII terms only: extraction preserves the
+	// passage's text exactly as written, including this post's decorative
 	// Unicode "Mathematical Bold" styling for some words (e.g. a stylized
-	// "Truffle" that isn't the same codepoints as plain ASCII "truffle" -
-	// tokenize.Tokenize doesn't currently fold that, a real gap surfaced
-	// by this fixture and tracked separately, not something this test
-	// should depend on).
+	// "Truffle" that isn't the same codepoints as plain ASCII "truffle").
+	// That's correct - the raw substring check here shouldn't expect
+	// normalized text, since Passage.Text is meant to be verbatim.
+	// Normalization happens downstream, at tokenize time (see
+	// TestWordPressBlogExtractor_RealDecorativeUnicodeIsSearchable below).
 	joined := strings.ToLower(strings.Join(passageTexts(passages), " "))
 	for _, want := range []string{"sun cream", "skin care"} {
 		if !strings.Contains(joined, want) {
@@ -107,6 +112,32 @@ func TestWordPressBlogExtractor_SkipsDecorativeNonTextParagraphs(t *testing.T) {
 			t.Errorf("duplicate Passage.ID() %q - two passages ended up with identical SourceURL+Text", id)
 		}
 		ids[id] = true
+	}
+}
+
+// TestWordPressBlogExtractor_RealDecorativeUnicodeIsSearchable closes the
+// loop on the gap flagged in docs/design/33-real-crawl.md: this real
+// post's decorative Unicode-styled "Truffle" (Mathematical Bold, not
+// plain ASCII) must now tokenize identically to plain "truffle" -
+// tested against the exact real content that originally surfaced the
+// problem, not a synthetic stand-in.
+func TestWordPressBlogExtractor_RealDecorativeUnicodeIsSearchable(t *testing.T) {
+	html, err := os.ReadFile("testdata/simplyemsblog_dalba_sunscreen_review.html")
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	passages, err := WordPressBlogExtractor{}.Extract(string(html), "https://simplyemsblog.wordpress.com/2020/08/19/dalba-sunscreen-review/")
+	if err != nil {
+		t.Fatalf("Extract returned error: %v", err)
+	}
+
+	var allTerms []string
+	for _, p := range passages {
+		allTerms = append(allTerms, tokenize.Tokenize(p.Text)...)
+	}
+
+	if !slices.Contains(allTerms, "truffle") {
+		t.Error(`tokenized passages do not contain "truffle" - the decorative Unicode styling in the real post is not being normalized`)
 	}
 }
 

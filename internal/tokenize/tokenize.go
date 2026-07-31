@@ -5,6 +5,8 @@ package tokenize
 import (
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Token is one term plus the byte offsets it occupied in the original
@@ -46,6 +48,17 @@ func Tokenize(text string) []string {
 // snippet highlighting needs to slice out and mark up exactly the text
 // that matched, using the identical notion of "match" the index itself
 // uses.
+//
+// Token.Text is run through NFKC (Unicode compatibility normalization)
+// before lowercasing, so decorative Unicode variants of ordinary Latin
+// letters - e.g. Mathematical Bold "𝐓𝐫𝐮𝐟𝐟𝐥𝐞" (real text a blogger used
+// for styling, see docs/design/34-unicode-normalization.md) - fold to
+// the same term as plain "Truffle" and so become findable by a normal
+// query. This only changes Token.Text, never Start/End: those still
+// index into the original, un-normalized text exactly as before, so a
+// snippet built from them still shows the passage precisely as the
+// source wrote it, styling and all - normalization changes what a token
+// matches on, not what gets displayed back.
 func TokenizeWithOffsets(text string) []Token {
 	var tokens []Token
 	var current []rune
@@ -54,8 +67,9 @@ func TokenizeWithOffsets(text string) []Token {
 
 	flush := func(end int) {
 		if len(current) > 0 {
+			normalized := norm.NFKC.String(string(current))
 			tokens = append(tokens, Token{
-				Text:  strings.ToLower(string(current)),
+				Text:  strings.ToLower(normalized),
 				Start: start,
 				End:   end,
 			})
