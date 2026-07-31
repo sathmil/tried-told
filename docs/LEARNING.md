@@ -1302,3 +1302,42 @@ generation, per the original stack mandate (Go owns indexing/serving).
   visually preserved exactly as written — the Unicode-normalization fix
   and the offset-preservation guarantee, both confirmed live, together,
   in the running UI.
+
+## 38. Bounded link-following: scaling real content without loosening the actual guarantee
+
+- The original real crawl's safety model was "the seed list is the
+  complete, exhaustive list of URLs ever fetched" — but reaching
+  anywhere near the project's original 500–1,000 passage target one
+  hand-curated URL at a time was never going to scale. Chose to let the
+  crawler follow links instead, and the reasoning for why that's still
+  safe matters more than the feature itself: the real guarantee was
+  never "nothing is discovered," it was "nothing ungoverned gets
+  fetched" — and that guarantee comes from three separate, still-intact
+  constraints (discovered links restricted to already-vetted hosts,
+  every discovered URL still gets the same per-URL robots.txt check,
+  and a hard cap on how many new pages one run will fetch), not from the
+  seed list being fixed. Recognizing which property was actually load-
+  bearing is what made loosening the other one defensible.
+- **The bound caught a real mistake immediately, not hypothetically**:
+  four of seven listing-page seeds were on `stylexplora.blogspot.com`
+  under `/search/label/...` — and that blog's own robots.txt disallows
+  `/search` entirely, something missed during the original vetting pass
+  because that check confirmed `Allow: /` covered post content broadly,
+  without specifically testing a `/search/label/` path against the
+  rule. The crawler caught it instantly and just skipped all four with
+  a logged reason — no manual intervention, nothing fetched that
+  shouldn't have been. This is the concrete proof for choosing
+  automated per-URL enforcement over trusting manual review alone: a
+  human (this one) got a specific URL wrong, and the system caught it
+  anyway.
+- Extending an existing real corpus safely meant loading what was
+  already crawled first and skipping it, not re-fetching or
+  re-extracting anything already known — a new run adds to the corpus,
+  it doesn't start over.
+- **The real result surprised expectations set by the first crawl**:
+  82 → 835 passages from just 40 newly discovered posts on one blog.
+  The original 5-post sample averaged ~15–20 passages per post; some of
+  the newly discovered "empties" round-up posts (one post reviewing many
+  products) yielded 50–70 each. A small sample from the first pass
+  wasn't representative of the population — worth remembering before
+  extrapolating scale from an initial handful of examples next time.
