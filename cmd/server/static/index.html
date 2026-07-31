@@ -10,7 +10,8 @@
   button { padding: 0.5rem 1rem; font-size: 1rem; }
   .result { border-bottom: 1px solid #ddd; padding: 1rem 0; }
   .meta { color: #666; font-size: 0.85rem; margin-top: 0.25rem; }
-  .score { color: #999; font-size: 0.8rem; }
+  .rank { color: #999; font-size: 0.8rem; }
+  mark { background: #fff3a3; padding: 0 0.1em; }
 </style>
 </head>
 <body>
@@ -49,19 +50,25 @@ function render(results) {
     return;
   }
   resultsEl.innerHTML = results.map(r => {
+    // r.snippet_html is inserted as-is, not escaped again here - the
+    // server already HTML-escapes the passage text and wraps only the
+    // matched terms in literal <mark> tags (see internal/api/search.go's
+    // renderSnippetHTML), specifically so this page never has to touch
+    // the highlighting itself.
     const metaParts = [r.product, r.skin_tone, r.climate].filter(Boolean);
     return `
       <div class="result">
-        <div>${escapeHtml(r.text)}</div>
+        <div>${r.snippet_html}</div>
         <div class="meta">${metaParts.map(escapeHtml).join(' · ')} · ${escapeHtml(r.source)}</div>
-        <div class="score">score: ${r.score.toFixed(3)}</div>
+        <div class="rank">rank: ${r.rank}</div>
       </div>
     `;
   }).join('');
 }
 
-// Uses the DOM's own text-insertion escaping rather than string concatenation,
-// since result text/metadata will eventually come from real (untrusted) sources.
+// Uses the DOM's own text-insertion escaping rather than string
+// concatenation for metadata fields (product/skin_tone/climate/source),
+// which are still plain, unescaped strings from the server.
 function escapeHtml(s) {
   const div = document.createElement('div');
   div.textContent = s;

@@ -4,13 +4,16 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"html"
 	"log"
 	"net/http"
+	"strings"
 
 	"triedandtold/internal/bm25"
 	"triedandtold/internal/hybrid"
 	"triedandtold/internal/index"
 	"triedandtold/internal/semantic"
+	"triedandtold/internal/snippet"
 )
 
 // semanticResultLimit caps how many semantic nearest-neighbors are pulled
@@ -19,13 +22,43 @@ import (
 const semanticResultLimit = 10
 
 type searchResult struct {
-	DocID    int    `json:"doc_id"`
-	Rank     int    `json:"rank"`
-	Text     string `json:"text"`
+	DocID int `json:"doc_id"`
+	Rank  int `json:"rank"`
+
+	// SnippetHTML is pre-rendered, already-escaped HTML (plain text with
+	// matched query terms wrapped in <mark>) - not the raw passage text.
+	// Named explicitly rather than "text" so nothing downstream mistakes
+	// it for plain text and double-escapes or misrenders it. Built here,
+	// not client-side, specifically to avoid ever sending byte offsets
+	// (correct for Go's UTF-8 strings) to a JS frontend (which indexes
+	// strings in UTF-16 code units) - real crawled content has multi-byte
+	// and even surrogate-pair characters (design doc 34), so that
+	// cross-language offset translation is a real bug class, not a
+	// theoretical one, and the simplest way to avoid it is to never do it.
+	SnippetHTML string `json:"snippet_html"`
+
 	Source   string `json:"source"`
 	Product  string `json:"product"`
 	SkinTone string `json:"skin_tone"`
 	Climate  string `json:"climate"`
+}
+
+// renderSnippetHTML converts a snippet.Snippet's plain text + byte-offset
+// matches into a single escaped HTML string, wrapping each match in
+// <mark>...</mark>. s.Matches is assumed non-overlapping and in
+// left-to-right order, which is how snippet.Extract always produces them.
+func renderSnippetHTML(s snippet.Snippet) string {
+	var b strings.Builder
+	pos := 0
+	for _, m := range s.Matches {
+		b.WriteString(html.EscapeString(s.Text[pos:m.Start]))
+		b.WriteString("<mark>")
+		b.WriteString(html.EscapeString(s.Text[m.Start:m.End]))
+		b.WriteString("</mark>")
+		pos = m.End
+	}
+	b.WriteString(html.EscapeString(s.Text[pos:]))
+	return b.String()
 }
 
 // Embedder is the query-embedding half of hybrid search, satisfied by
@@ -98,14 +131,15 @@ func SearchHandler(deps SearchDeps) http.HandlerFunc {
 				continue
 			}
 			m := deps.Metas[docID]
+			snip := snippet.Extract(deps.Docs[docID].Text, q)
 			results = append(results, searchResult{
-				DocID:    docID,
-				Rank:     i + 1,
-				Text:     deps.Docs[docID].Text,
-				Source:   m.Source,
-				Product:  m.Product,
-				SkinTone: m.SkinTone,
-				Climate:  m.Climate,
+				DocID:       docID,
+				Rank:        i + 1,
+				SnippetHTML: renderSnippetHTML(snip),
+				Source:      m.Source,
+				Product:     m.Product,
+				SkinTone:    m.SkinTone,
+				Climate:     m.Climate,
 			})
 		}
 

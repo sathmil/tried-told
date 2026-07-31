@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"triedandtold/internal/bm25"
@@ -15,6 +16,7 @@ import (
 	"triedandtold/internal/extract"
 	"triedandtold/internal/index"
 	"triedandtold/internal/semantic"
+	"triedandtold/internal/snippet"
 )
 
 // fakeEmbedder lets tests exercise the hybrid path without a running
@@ -104,6 +106,53 @@ func TestSearchHandler_ReturnsMatchingResults(t *testing.T) {
 	}
 	if results[0].Product != "sunscreen" || results[0].SkinTone != "deep" {
 		t.Errorf("results[0] = %+v, want product=sunscreen skin_tone=deep", results[0])
+	}
+}
+
+// TestSearchHandler_HighlightsMatchedTermInSnippetHTML proves the actual
+// point of this wiring: the matched query term comes back wrapped in
+// <mark>, as ready-to-render HTML - not a raw offset the client would
+// have to interpret itself.
+func TestSearchHandler_HighlightsMatchedTermInSnippetHTML(t *testing.T) {
+	handler := SearchHandler(setup(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/search?q=sunscreen", nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+
+	var results []searchResult
+	if err := json.Unmarshal(rec.Body.Bytes(), &results); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !strings.Contains(results[0].SnippetHTML, "<mark>sunscreen</mark>") {
+		t.Errorf("SnippetHTML = %q, want it to contain %q", results[0].SnippetHTML, "<mark>sunscreen</mark>")
+	}
+}
+
+// TestRenderSnippetHTML_EscapesPlainTextAroundMatches proves the
+// plain-text runs around a match are actually escaped, not just wrapped
+// with literal <mark> tags around raw text - real crawled content is
+// untrusted input, and a passage containing HTML-special characters
+// must not be able to inject markup into the response.
+func TestRenderSnippetHTML_EscapesPlainTextAroundMatches(t *testing.T) {
+	// The word before <script> matters: snippet.Extract's window starts
+	// at the first *token*, so a leading special character with no token
+	// before it would be trimmed as part of the window boundary, not
+	// preserved-and-escaped - this text keeps the tag safely in the
+	// interior so the test proves escaping, not window trimming.
+	got := renderSnippetHTML(snippet.Extract("my review <script>alert(1)</script> of this sunscreen", "sunscreen"))
+
+	if strings.Contains(got, "<script>") {
+		t.Errorf("SnippetHTML = %q, contains an unescaped <script> tag - passage text must be escaped", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;") {
+		t.Errorf("SnippetHTML = %q, want the literal text HTML-escaped", got)
+	}
+	if !strings.Contains(got, "<mark>sunscreen</mark>") {
+		t.Errorf("SnippetHTML = %q, want the matched term still highlighted", got)
 	}
 }
 

@@ -1263,3 +1263,42 @@ generation, per the original stack mandate (Go owns indexing/serving).
   returned results from both sources in one ranked list, and a live
   query for "truffle" surfaced the real Unicode-styled passage through
   the actual running API, not just an isolated test.
+
+## 37. Wiring snippets into the search API — and a language-boundary version of an old bug
+
+- Replaced the response's full-text field with `snippet_html` rather
+  than adding a snippet alongside it — a leaner response, since the full
+  passage was rarely much longer than the excerpt anyway and nothing
+  needed both views at once.
+- **The real decision was where highlighting gets built, not whether
+  it's needed.** `snippet.Span` offsets are correct byte offsets for
+  Go's UTF-8 strings — but JavaScript indexes strings in UTF-16 code
+  units, and this project's real content has characters where that gap
+  bites: curly quotes, accented letters, and the decorative Unicode
+  styling from the real-crawl round, which needs a UTF-16 *surrogate
+  pair* per character since it sits outside the Basic Multilingual
+  Plane. Sending raw byte offsets to the browser and slicing there would
+  silently misalign the highlight around exactly the content this
+  project already knows is real, not hypothetical. Recognizing this as
+  the *same class* of bug as the earlier byte/rune offset issues — just
+  crossing a language boundary instead of staying inside Go — is what
+  made the fix obvious: build the final HTML in Go, where the slicing is
+  already correct, and never let an offset cross the boundary at all.
+- Escaping wasn't optional once that choice was made: real crawled
+  content is untrusted input, and `TestRenderSnippetHTML_EscapesPlainTextAroundMatches`
+  proves a passage containing a literal `<script>` tag comes back
+  escaped, with the real match still highlighted alongside it.
+- **Found a live, unrelated regression just by looking at the frontend
+  before touching it**: `cmd/server/static/index.html` still read
+  `r.score.toFixed(3)`, but `Score` was removed for `Rank` back when
+  hybrid ranking was first wired in — every real search had been
+  silently throwing in the render callback since then. No Go-side test
+  could have caught a JavaScript field-name mismatch; only actually
+  opening the page would. Fixed alongside this change.
+- Verified in an actual browser, not just unit tests: a "sunscreen"
+  query showed highlighted matches and ellipsis truncation across both
+  corpora in one screenshot, and a "truffle" query showed the real
+  blogger's decorative Unicode-styled text correctly highlighted *and*
+  visually preserved exactly as written — the Unicode-normalization fix
+  and the offset-preservation guarantee, both confirmed live, together,
+  in the running UI.
