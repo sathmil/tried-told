@@ -1220,3 +1220,46 @@ generation, per the original stack mandate (Go owns indexing/serving).
   real BM25 query for "truffle" against it live — 0 hits before, 1 hit
   after. `TestTokenizeWithOffsets_NormalizationDoesNotAlterOriginalTextOffsets`
   independently proves the offset guarantee held throughout.
+
+## 36. Combining two corpora needed zero new mechanism
+
+- Chose to combine the synthetic and real corpora rather than replace
+  one with the other — real content has no structured metadata (blog
+  HTML doesn't tag skin tone or climate), so replacing the synthetic
+  corpus would have thrown away the one thing it has that real content
+  doesn't. Combining is also more honest: a real corpus grows
+  incrementally, some of it tagged, some not, not replaced wholesale.
+- **The actual finding worth remembering**: both pieces of
+  infrastructure this needed already existed, built ahead of time for
+  exactly this purpose. `diskindex.MultiSegment` (entry from design doc
+  23) exists specifically because a new segment is pointless if nothing
+  queries it alongside existing ones — combining two *corpora's*
+  segments is the same scenario as combining two *crawl batches'*
+  segments, just arrived at from a different direction. `semantic.Index.Add`
+  (entry 27) was already proven safe to call repeatedly against the same
+  graph. Neither package needed a single line changed — only new wiring
+  in `cmd/server`. This is the payoff of "prove the mechanism, defer the
+  wiring" as a recurring pattern: the wiring stays cheap precisely
+  because the mechanism was already built and tested in isolation,
+  before there were two real corpora to combine.
+- **Joining by stable `Passage.ID()` rather than array position is what
+  made this safe.** `MultiSegment`'s internal `DocID` numbering (based on
+  segment order) never has to agree with the order the two corpora's
+  `Docs`/`Metas` slices were concatenated in — the two ID spaces are
+  fully decoupled, connected only through each passage's own content
+  hash. Getting the concatenation order "wrong" wouldn't even be
+  possible to get wrong, since there's no positional coupling for it to
+  violate. This was a design choice made back in design doc 29, before
+  there were two corpora to combine — proof that not over-fitting the
+  design to the one scenario in front of you at the time can pay off
+  later in ways you didn't originally plan for.
+- **The test that actually matters here** isn't about ranking at all:
+  `TestLoadRealCrawlJSONL_MatchesTheCommittedSegment` proves
+  reconstructing `extract.Passage` from the JSONL reproduces the exact
+  `Passage.ID()`s already baked into the committed segment — if this
+  silently drifted, every real search result would fail to resolve, with
+  no error, just missing results. Verified live too: server startup
+  logged "serving 30 synthetic + 82 real passages," a live query
+  returned results from both sources in one ranked list, and a live
+  query for "truffle" surfaced the real Unicode-styled passage through
+  the actual running API, not just an isolated test.
