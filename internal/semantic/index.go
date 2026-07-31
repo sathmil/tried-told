@@ -41,8 +41,27 @@ func Open(path string) (*Index, error) {
 // panics with a nil pointer dereference. Both are library bugs, not
 // something to route around unnoticed - see docs/design/26-hnsw-index.md.
 func (idx *Index) Add(f *embeddings.File) error {
+	// A real crawl surfaced a case the graph-state check above doesn't
+	// cover: f itself can contain two embeddings with the same
+	// PassageID (e.g. a decorative element repeated verbatim within one
+	// page - identical SourceURL+Text hashes identically). Neither
+	// exists in the graph yet, so both would pass the existing-key
+	// check below and get queued into the same Add call - hitting the
+	// exact "duplicate key" library bug this function otherwise routes
+	// around, just within one batch instead of across two. Deduping
+	// first, last-occurrence-wins (consistent with "re-adding a passage
+	// ID replaces its vector"), closes that gap.
+	deduped := make(map[string]embeddings.Embedding, len(f.Embeddings))
+	order := make([]string, 0, len(f.Embeddings))
 	for _, e := range f.Embeddings {
-		if _, exists := idx.graph.Lookup(e.PassageID); exists {
+		if _, seen := deduped[e.PassageID]; !seen {
+			order = append(order, e.PassageID)
+		}
+		deduped[e.PassageID] = e
+	}
+
+	for _, id := range order {
+		if _, exists := idx.graph.Lookup(id); exists {
 			if idx.graph.Len() == 1 {
 				// Deleting the sole remaining node breaks the graph (see
 				// above) - recreating it fresh sidesteps that entirely,
@@ -50,14 +69,14 @@ func (idx *Index) Add(f *embeddings.File) error {
 				idx.graph.Graph = hnsw.NewGraph[string]()
 				idx.graph.Distance = hnsw.CosineDistance
 			} else {
-				idx.graph.Delete(e.PassageID)
+				idx.graph.Delete(id)
 			}
 		}
 	}
 
-	nodes := make([]hnsw.Node[string], len(f.Embeddings))
-	for i, e := range f.Embeddings {
-		nodes[i] = hnsw.MakeNode(e.PassageID, e.Vector)
+	nodes := make([]hnsw.Node[string], len(order))
+	for i, id := range order {
+		nodes[i] = hnsw.MakeNode(id, deduped[id].Vector)
 	}
 	idx.graph.Add(nodes...)
 	return idx.graph.Save()

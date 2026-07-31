@@ -266,3 +266,29 @@ func TestFetcher_TooManyRedirectsGivesUp(t *testing.T) {
 		t.Fatal("expected an error from an infinite redirect chain, got nil")
 	}
 }
+
+// TestFetcher_SendsItsOwnUserAgent proves the crawler identifies itself
+// on real page requests, not just when fetching robots.txt - a site
+// operator inspecting their access logs should see this bot's name, not
+// Go's generic default User-Agent.
+func TestFetcher_SendsItsOwnUserAgent(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			http.NotFound(w, r)
+			return
+		}
+		gotUA = r.Header.Get("User-Agent")
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	f := newFetcher(srv.Client())
+	if _, err := f.Fetch(srv.URL + "/page"); err != nil {
+		t.Fatalf("Fetch returned error: %v", err)
+	}
+
+	if gotUA != robots.UserAgent {
+		t.Errorf("page fetch sent User-Agent %q, want %q", gotUA, robots.UserAgent)
+	}
+}

@@ -134,3 +134,27 @@ func TestChecker_FailureIsNotCachedSoLaterCallsRetry(t *testing.T) {
 		t.Errorf("robots.txt fetch was attempted %d times, want exactly 2 (failure must not be cached)", got)
 	}
 }
+
+// TestChecker_SendsItsOwnUserAgentWhenFetchingRobotsTxt proves the
+// crawler identifies itself on the actual HTTP request, not just when
+// matching rules within an already-fetched robots.txt. A crawler that
+// only used UserAgent for internal rule-matching but sent Go's generic
+// default User-Agent on the wire would be unidentifiable to any real
+// site operator inspecting their own access logs.
+func TestChecker_SendsItsOwnUserAgentWhenFetchingRobotsTxt(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.Client())
+	if _, err := c.Allowed(srv.URL + "/anything"); err != nil {
+		t.Fatalf("Allowed returned error: %v", err)
+	}
+
+	if gotUA != UserAgent {
+		t.Errorf("robots.txt fetch sent User-Agent %q, want %q", gotUA, UserAgent)
+	}
+}

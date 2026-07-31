@@ -108,6 +108,37 @@ func TestIndex_ReAddingSameIDReplacesRatherThanDuplicates(t *testing.T) {
 	}
 }
 
+// TestIndex_DuplicateIDWithinOneBatchDoesNotPanic covers a case the
+// re-add path doesn't: two embeddings sharing the same PassageID
+// arriving in the *same* Add call (a real crawl produced this - a
+// decorative element repeated verbatim on one page hashes identically).
+// Neither exists in the graph yet, so naively queuing both into one
+// underlying Add call hits coder/hnsw's duplicate-key panic just as
+// surely as re-adding an existing key does.
+func TestIndex_DuplicateIDWithinOneBatchDoesNotPanic(t *testing.T) {
+	idx, err := Open(filepath.Join(t.TempDir(), "index.graph"))
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+
+	err = idx.Add(&embeddings.File{Embeddings: []embeddings.Embedding{
+		{PassageID: "a", Vector: []float32{1, 0, 0}},
+		{PassageID: "dup", Vector: []float32{0, 1, 0}},
+		{PassageID: "dup", Vector: []float32{0, 0, 1}}, // same ID, later vector wins
+	}})
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	if idx.Len() != 2 {
+		t.Fatalf("Len() = %d, want 2 (a duplicate ID within one batch must collapse, not error)", idx.Len())
+	}
+	results := idx.Search([]float32{0, 0, 1}, 1)
+	if len(results) != 1 || results[0] != "dup" {
+		t.Errorf("Search([0,0,1], 1) = %v, want [dup] (the later of the two same-ID vectors)", results)
+	}
+}
+
 // TestIndex_FindsSemanticallyRelevantPassageWithRealEmbeddings is the
 // proof that actually matters: real BGE embeddings for three topically
 // distinct passages (sunscreen, pizza, car maintenance), searched with a

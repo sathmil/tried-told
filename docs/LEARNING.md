@@ -1123,3 +1123,63 @@ generation, per the original stack mandate (Go owns indexing/serving).
   window, so there's no real value in wiring it into that specific demo
   yet. The mechanism is proven and ready for real (longer) crawled
   content, still gated on real-source vetting.
+
+## 34. A small, individually vetted real crawl
+
+- "Real content at scale" and "prove the crawler works" turned out to be
+  two different goals pulling toward different sources, not one. Tried
+  scale first — an academic Amazon Reviews dataset, the Yelp Open
+  Dataset, a Kaggle re-upload — and none had a license clean enough to
+  trust: no stated license at all, explicitly non-sublicensable terms
+  (wrong for a public repo regardless of non-commercial intent), or an
+  unverifiable third-party claim about content they didn't originate.
+  De-scoped to a small crawl instead of taking a shaky license at face
+  value — the same bar this project already held when it declined a
+  ToS-gray scrape earlier. "Public" and "cleanly licensed for reuse"
+  are different questions, and only one of them was actually answered
+  by any of those three candidates.
+- Vetting meant fetching each real site's actual `robots.txt` and
+  reading it directly, plus checking the platform's terms for any
+  scraping restriction — not inferring permission from "it's a public
+  blog." Both real candidates checked out: `Allow: /` behavior with only
+  admin/login/search paths disallowed, and no ToS clause beyond a
+  generic "don't overburden our systems" that a 5-second per-host delay
+  and a single worker already respects.
+- **Running the real crawler for the first time against a real site
+  surfaced a real gap unit tests never could**: `robots.UserAgent`
+  existed and was used to *match* robots.txt rules, but was never
+  actually *sent* on the wire — both `robots.Checker` and
+  `fetch.Fetcher` used the `client.Get` shorthand, which sends Go's
+  anonymous default User-Agent. A site's access logs would show
+  nothing identifiable. Fixed by building explicit requests with the
+  header set (and a contact URL in the UA string, standard crawler
+  etiquette once real servers are involved), proven with tests that
+  check the header actually arrives — a property no local fixture ever
+  needed to prove before.
+- **A second real gap chained off the first real content encountered**:
+  one blog repeats a lone decorative emoji as a divider. Identical
+  `SourceURL`+`Text` hashes to an identical `Passage.ID()`, and two such
+  duplicates inside the *same* `semantic.Index.Add` call both passed the
+  existing "does this already exist in the graph" check (neither did
+  yet) — reopening the exact `coder/hnsw` duplicate-key bug from entry
+  27, just within one batch instead of across two calls. Fixed the
+  symptom (deduped the batch, last-occurrence-wins) *and* the root cause
+  (extraction now skips any paragraph with zero real tokens — a
+  decorative emoji is content to a human, but nothing for BM25 or
+  embeddings to index, and indexing it as a passage is what created the
+  duplicate ID to begin with).
+- **A third gap found and deliberately left alone**: the same post uses
+  decorative Unicode "Mathematical Bold" styling for some words —
+  different codepoints from plain ASCII, so a plain-text query would
+  never match them even though they read identically to a human.
+  Flagged explicitly rather than quietly fixed or quietly ignored: real
+  content kept finding real problems synthetic data never could, and not
+  every one found in the same afternoon has to be fixed in the same
+  afternoon — this one needs Unicode normalization in the core
+  tokenizer, which is a bigger, separate piece of work.
+- Both extractors (`WordPressBlogExtractor`, `BloggerBlogExtractor`) are
+  tested against the actual unmodified HTML fetched from each real site,
+  not hand-crafted fixtures — and the whole pipeline was run for real:
+  real fetches, real robots.txt checks, real politeness delays, 82 real
+  passages built into a real segment and confirmed searchable by real
+  BM25 queries and real semantic search.

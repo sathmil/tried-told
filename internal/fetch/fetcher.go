@@ -173,7 +173,17 @@ func (f *Fetcher) fetchWithRetry(url string) (*http.Response, error) {
 	var lastErr error
 
 	for attempt := 0; attempt < f.cfg.MaxAttempts; attempt++ {
-		resp, err := f.client.Get(url)
+		req, reqErr := http.NewRequest(http.MethodGet, url, nil)
+		if reqErr != nil {
+			return nil, reqErr
+		}
+		// Identifies this crawler to the server it's fetching from - the
+		// same name robots.Checker uses to match robots.txt rules, so a
+		// site operator inspecting their own access logs can actually tell
+		// which requests were this bot, not just an anonymous Go client.
+		req.Header.Set("User-Agent", robots.UserAgent)
+
+		resp, err := f.client.Do(req)
 		if err == nil && !shouldRetryStatus(resp.StatusCode) {
 			return resp, nil
 		}

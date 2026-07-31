@@ -11,9 +11,13 @@ import (
 	"github.com/jimsmart/grobotstxt"
 )
 
-// UserAgent identifies this crawler when fetching robots.txt and when
-// matching User-agent rules within it.
-const UserAgent = "TriedAndToldBot/0.1"
+// UserAgent identifies this crawler when fetching robots.txt, when
+// matching User-agent rules within it, and (via fetch.Fetcher) on every
+// actual page request - a bare product token isn't enough for a real
+// crawl against real sites, since a site operator with a question or
+// complaint about this bot's traffic needs a way to reach out, not just
+// a name in their access log.
+const UserAgent = "TriedAndToldBot/0.1 (+https://github.com/sathmil/tried-told)"
 
 // outcome is what gets cached per host.
 type outcome struct {
@@ -81,7 +85,17 @@ func (c *Checker) outcomeFor(host string) outcome {
 }
 
 func (c *Checker) fetch(host string) outcome {
-	resp, err := c.client.Get(host + "/robots.txt")
+	req, err := http.NewRequest(http.MethodGet, host+"/robots.txt", nil)
+	if err != nil {
+		return outcome{disallowAll: true}
+	}
+	// UserAgent is used below to match rules within the fetched robots.txt,
+	// but a site can only apply an agent-specific rule to a request it can
+	// actually identify - sending the same name here is what makes that
+	// matching meaningful instead of purely internal bookkeeping.
+	req.Header.Set("User-Agent", UserAgent)
+
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return outcome{disallowAll: true} // couldn't even connect
 	}
