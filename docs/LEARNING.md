@@ -1069,3 +1069,57 @@ generation, per the original stack mandate (Go owns indexing/serving).
   segments atomically while queries are in flight. This proves the
   merge mechanism is correct; wiring it into an always-on, continuously
   updated index is separate work.
+
+## 33. Snippets: sharing the retrieval tokenizer, and an incidental flaky-test fix
+
+- The real design question wasn't "how do you extract a window of text"
+  — it was "does the code deciding *this word matches the query* for
+  highlighting use the same tokenizer as the code that decided it
+  matched for retrieval?" This project has already been burned twice by
+  two code paths quietly disagreeing about the same fact (the URL
+  `%2F` bug, and trusting `coder/hnsw`'s doc claim about `Add` instead
+  of checking it — entry 27). A snippet highlighter with its own
+  substring-matching heuristic would be a third instance of exactly that
+  risk: retrieval tokenizes `"SPF50"` into `["spf","50"]`, so query
+  `"SPF 50"` matches it at the token level, but a literal substring
+  search for `"SPF 50"` would never find `"SPF50"` in the text — a term
+  that genuinely mattered for ranking would silently fail to highlight.
+- Extended `tokenize.Tokenize` (which only ever returned `[]string`,
+  discarding position) with `TokenizeWithOffsets`, which also records
+  each token's *byte* offset — not rune count, a real distinction once
+  any multi-byte UTF-8 rune is involved, proven with a `"café"` test
+  case rather than assumed to not matter. Then redefined `Tokenize`
+  itself in terms of `TokenizeWithOffsets`, rather than as a second,
+  parallel implementation — so the two can never drift apart, which
+  would otherwise reopen the exact consistency risk this design was
+  built to avoid.
+- Window selection scores every position by *match density* and keeps
+  the best-scoring one, not simply the first occurrence — a passage can
+  mention a term once early and discuss it in depth later, and anchoring
+  on the first hit would often show the least informative part of the
+  passage. Verified with a hand-worked-out token layout (an isolated
+  early match vs. a denser later cluster) rather than trusting the
+  sliding-window arithmetic by inspection alone.
+- **A real, pre-existing flake surfaced incidentally**, from just
+  running the full suite as usual before calling this done:
+  `TestSearchLive_OverFetchCompensatesForDeletedTopResults` (entry 31)
+  failed intermittently, unrelated to anything in this pass. Reran it
+  in isolation 100 times and confirmed a genuine ~12% failure rate —
+  `coder/hnsw`'s approximate search can rank two near-tied candidates
+  in the "wrong" order even on an exhaustive 5-node graph, due to its
+  own unseeded randomized level assignment. Tried the two most obvious
+  fixes — raising `EfSearch`, and padding the graph to a more realistic
+  size — and empirically confirmed neither worked (padding actually made
+  it *worse*, since `SearchLive`'s over-fetch became selective instead
+  of exhaustive against a bigger graph). The real fix: the test was
+  asserting a stronger claim than `SearchLive` actually makes (an exact
+  ranking between two specific survivors) rather than its real guarantee
+  (over-fetching returns 2 live, non-tombstoned results at all).
+  Loosened the assertion to match what's actually guaranteed, verified
+  stable across 30 repeated runs — a case of the test being wrong, not
+  the code, but only provably so after checking both.
+- Not wired into `internal/api.SearchHandler`: the synthetic demo
+  corpus's passages are already shorter than the default 12-token
+  window, so there's no real value in wiring it into that specific demo
+  yet. The mechanism is proven and ready for real (longer) crawled
+  content, still gated on real-source vetting.
