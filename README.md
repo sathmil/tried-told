@@ -1,58 +1,103 @@
 # Tried & Told
 
-A vertical search engine for first-person skincare and makeup
-experiences, built from scratch in Go to learn information retrieval
-deeply enough to defend every architectural decision — not a wrapper
-around Elasticsearch or a vector-database SDK.
+A full-text search engine, built from scratch, for discovering
+first-person product reviews across the web — no off-the-shelf search
+library or vector database. Indexing, ranking, and storage are all
+implemented from first principles in Go, as a deliberate deep dive into
+information retrieval: every architectural decision below is one I can
+defend, not one a framework made for me.
 
-Search combines classic lexical retrieval (BM25, over a
-delta/varint-compressed disk index built by hand) with dense semantic
-retrieval (HNSW over sentence embeddings), fused with Reciprocal Rank
-Fusion. Content is sourced by a real, polite, crash-resumable web
-crawler running against individually vetted sites, not a synthetic or
-scraped-without-permission dataset.
+## Why
+
+Product reviews on the open web are scattered, duplicated, and often
+not written by an actual person who used the product. Tried & Told is a
+vertical search engine focused specifically on surfacing authentic,
+first-person reviews — sourced, deduplicated, and ranked for relevance
+rather than SEO.
 
 ## Highlights
 
-- **BM25 and an inverted index implemented from scratch** — no search
-  library. Delta + variable-byte encoded postings, phrase search via
-  position intersection, tombstone-based soft deletes, and segment
-  merging that actually reclaims the space deletions free up.
+- **BM25 and an inverted index implemented from scratch.** Delta +
+  variable-byte encoded postings, phrase search via position
+  intersection, tombstone-based soft deletes, and segment merging that
+  actually reclaims the space deletions free up.
 - **A real crawler with real ethics.** Every source was vetted by
   fetching and reading its `robots.txt` directly and checking terms of
   service for scraping restrictions — one platform was declined outright
   for prohibiting it. The crawler enforces politeness (per-host rate
   limiting), identifies itself with a real User-Agent, and recovers from
   crashes via a write-ahead log rather than starting over.
-- **Hybrid semantic + lexical ranking.** Passage embeddings
-  (`bge-small-en-v1.5`) indexed with HNSW, combined with BM25 via
-  Reciprocal Rank Fusion — chosen specifically because BM25 and cosine
-  similarity scores live on incomparable scales, and RRF sidesteps that
-  by ranking on position, not raw score.
+- **Hybrid semantic + lexical ranking**, fused with Reciprocal Rank
+  Fusion rather than a weighted score blend — chosen specifically
+  because BM25 and cosine-similarity scores live on incomparable scales,
+  and RRF sidesteps that by ranking on position, not raw score.
 - **Real bugs, found and fixed, not just features shipped.** Two
   independently reproduced bugs in a third-party HNSW library, a
   Unicode-normalization gap that made decorative styled text
   unsearchable, and a UTF-8/UTF-16 offset mismatch that would have
-  broken snippet highlighting on real content — each one found through
+  broken snippet highlighting on real content — each found through
   testing against real crawled data, not synthetic fixtures.
-- **835 real, ethically sourced passages** from vetted sites, indexed
-  alongside a small synthetic demo set, all searchable through one
-  combined index.
+- **835 first-person reviews**, ethically sourced and vetted from 45
+  pages, filtered for authenticity via SimHash near-duplicate detection,
+  indexed alongside a small synthetic demo set through one combined
+  index.
 - **163 automated tests** and a running design-decision log
   (`docs/design/`, `docs/LEARNING.md`) documenting the reasoning behind
-  every major choice — including the ones that turned out to be wrong
-  and had to be revisited.
+  every major choice — including the ones that turned out wrong and had
+  to be revisited.
+
+## Features
+
+**Indexing**
+- Disk-backed inverted index with delta/varint-compressed postings for
+  compact storage
+- Positional indexing for exact phrase search
+- Immutable segments with soft-delete and merge-time garbage collection
+
+**Crawling**
+- Polite, crash-resumable crawler with `robots.txt` enforcement and
+  per-host rate limiting
+- Write-ahead-log (WAL) recovery so crawls resume cleanly after a
+  failure
+- Bloom-filter URL dedup plus SimHash near-duplicate detection for
+  re-published or lightly-edited content
+
+**Retrieval & Ranking**
+- BM25 over the lexical index
+- Hybrid retrieval: BM25 fused with HNSW approximate-nearest-neighbor
+  search over dense embeddings
+- Reciprocal Rank Fusion (RRF) to combine lexical and semantic result
+  sets
+- Offline Python embedding pipeline feeding a Go-based query API
 
 ## Architecture
 
-| Component | What it does |
+```
+┌──────────────┐     ┌──────────────┐     ┌─────────────────┐
+│   Crawler    │ --> │   Indexer    │ --> │  Inverted Index  │
+│ (WAL, dedup) │     │ (BM25 terms) │     │  (disk-backed)   │
+└──────────────┘     └──────────────┘     └─────────────────┘
+                                                     │
+┌──────────────┐     ┌──────────────┐               │
+│  Embedding   │ --> │  HNSW Index  │               │
+│  Pipeline    │     │ (dense vecs) │               │
+│  (Python)    │     └──────────────┘               │
+└──────────────┘             │                       │
+                              ▼                       ▼
+                        ┌──────────────────────────────┐
+                        │   Search API (Go) — RRF       │
+                        │   fusing lexical + semantic   │
+                        └──────────────────────────────┘
+```
+
+| Package | What it does |
 |---|---|
 | `internal/fetch`, `internal/frontier`, `internal/robots` | Polite, crash-resumable crawling: per-host rate limiting, robots.txt enforcement, retry with backoff |
-| `internal/crawlstate`, `internal/wal` | Write-ahead-log-backed frontier/registry state, so a crash resumes instead of restarting |
+| `internal/crawlstate`, `internal/wal` | Write-ahead-log-backed frontier/registry state |
 | `internal/dedup`, `internal/simhash` | Bloom-filter exact dedup + SimHash near-duplicate detection |
 | `internal/extract` | Site-specific passage extraction (deliberately not generic boilerplate stripping) |
 | `internal/tokenize`, `internal/bm25`, `internal/index` | Tokenization (with Unicode compatibility normalization), BM25 scoring, in-memory index |
-| `internal/diskindex` | Immutable, compressed disk segments: postings, phrase search, multi-segment querying, merging |
+| `internal/diskindex` | Compressed disk segments: postings, phrase search, multi-segment querying, merging |
 | `internal/embeddings`, `internal/semantic`, `internal/embedclient` | Embedding file format, HNSW index, query-time embedding client |
 | `internal/hybrid` | Reciprocal Rank Fusion of lexical and semantic rankings |
 | `internal/snippet` | Query-highlighted excerpt extraction |
@@ -64,7 +109,9 @@ Every non-obvious decision — why BM25's `k1`/`b` were chosen, why
 segments are immutable, why RRF over a weighted score combination, why
 crawl link-discovery was bounded the way it was — is written up in
 [`docs/design/`](docs/design), in commit order, with the rejected
-alternatives and why they lost.
+alternatives and why they lost. [`docs/LEARNING.md`](docs/LEARNING.md)
+is a running log of what each step taught, including mistakes caught
+along the way.
 
 ## Running it
 
@@ -85,8 +132,9 @@ go run ./cmd/server
 go test ./...   # run the test suite
 ```
 
-## Stack
+## Tech Stack
 
-Go (crawler, indexing, ranking, query API) · Python (offline embedding
-generation only) · no external search or vector database — the index is
-a hand-built, disk-backed file format.
+**Go** — search API, inverted index, crawler, ranking · **Python** —
+offline embedding pipeline only, per a deliberate stack boundary · no
+external search or vector database — the index is a hand-built,
+disk-backed file format.
