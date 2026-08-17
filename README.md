@@ -15,6 +15,16 @@ vertical search engine focused specifically on surfacing authentic,
 first-person reviews — sourced, deduplicated, and ranked for relevance
 rather than SEO.
 
+### Why I built this
+
+I'd used vector databases and retrieval tools before, but I understood how to call them a lot better than I understood what was happening underneath. Tried & Told was how I closed that gap — building the pieces I'd normally get from a library myself, against real first-person product reviews instead of a synthetic demo set.
+
+Getting the data ended up being one of the first things that complicated the project. I initially found much larger datasets that would have made this easier, but some had licensing I wasn't comfortable ignoring, and sites differed in what they actually permitted through `robots.txt` and their terms. I rejected sources I couldn't confidently use and built around a much smaller set of vetted public sources instead — which made it clear retrieval starts before ranking: what gets included in the corpus decides whose information can be found at all.
+
+From there I mostly let whatever I didn't understand yet decide what to build next. BM25 made me figure out what `k1` and `b` actually change. Putting the index on disk led to compressed postings, segments, tombstones, and merging. Adding semantic search meant confronting that BM25 and cosine-similarity scores don't mean the same thing, which led to RRF. Real crawled data then broke assumptions a toy example never would have: Unicode that looked completely normal but couldn't be matched by a plain-text query, and edge cases in a third-party HNSW library that a clean demo never would have hit.
+
+I used Claude throughout this — mainly to reason through tradeoffs and move quickly past syntax, while I made the actual calls and dug into whatever broke once it was built.
+
 ## Highlights
 
 - **BM25 and an inverted index implemented from scratch.** Delta +
